@@ -53,11 +53,25 @@ plugins/drum_highway_3d/__pycache__/
 !plugins/keys_highway_3d/
 !plugins/keys_highway_3d/**
 plugins/keys_highway_3d/__pycache__/
+# Mobile Edition vendor plugins are release inputs, not ignored user plugins.
+!plugins/mobile_ui/
+!plugins/mobile_ui/**
+plugins/mobile_ui/__pycache__/
+!plugins/section_map/
+!plugins/section_map/**
+plugins/section_map/__pycache__/
+plugins/section_map/.claude/
+plugins/section_map/.github/
+plugins/section_map/.specify/
 node_modules/
 test-results/
 playwright-report/
 
 /dlc
+
+# Local song libraries must never be committed to the distribution repository.
+/library/*
+!/library/.gitkeep
 
 .vscode
 Thumbs.db

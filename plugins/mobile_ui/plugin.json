@@ -1,0 +1,40 @@
+{
+  "id": "mobile_ui",
+  "name": "Mobile UI",
+  "version": "0.4.0",
+  "description": "Mobile-first layout and player UI improvements for FeedBack.",
+  "icon": "assets/thumb.svg",
+  "license": "MIT",
+  "category": "practice",
+  "script": "screen.js",
+  "scriptType": "module",
+  "styles": "assets/mobile_ui.css",
+  "offline": {
+    "assets": [
+      "screen.js",
+      "settings.html",
+      "assets/mobile_ui.css",
+      "src/debug.js",
+      "src/diagnostics.js",
+      "src/dom.js",
+      "src/gestures.js",
+      "src/highway.js",
+      "src/home.js",
+      "src/library.js",
+      "src/lifecycle.js",
+      "src/main.js",
+      "src/player.js",
+      "src/plugins.js",
+      "src/preboot.js",
+      "src/safe-area.js",
+      "src/shell.js",
+      "src/state.js",
+      "src/viewport.js"
+    ]
+  },
+  "settings": {
+    "html": "settings.html"
+  },
+  "private": false,
+  "standards": ["plugin-runtime-idempotent.v1"]
+}

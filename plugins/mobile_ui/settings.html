@@ -1,0 +1,233 @@
+<style>
+  .mobile-ui-settings-panel { padding: 0; }
+  .mobile-ui-settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.75rem; cursor: pointer;
+  }
+  .mobile-ui-settings-label {
+    font-size: 0.88rem; font-weight: 500; color: #cbd5e1;
+  }
+  .mobile-ui-settings-toggle {
+    width: 2.6rem; height: 1.5rem; accent-color: #22d3ee;
+    cursor: pointer; flex: 0 0 auto;
+  }
+  .mobile-ui-settings-help {
+    margin: 0.5rem 0 0; font-size: 0.75rem; color: #64748b;
+    line-height: 1.4;
+  }
+  .mobile-ui-settings-support-row { min-width: 0; flex-wrap: wrap; }
+  .mobile-ui-settings-support {
+    display: flex; align-items: center; justify-content: flex-end;
+    min-width: 0; flex-wrap: wrap; gap: 0.5rem; text-align: right;
+    font-size: 0.78rem; color: #94a3b8;
+  }
+  .mobile-ui-settings-support[data-state="ready"] { color: #22c55e; }
+  .mobile-ui-settings-support-link { color: #22d3ee; font-weight: 600; }
+  .mobile-ui-settings-support[data-state="core-update-required"] .mobile-ui-settings-support-link {
+    color: #f87171;
+  }
+  .mobile-ui-settings-action {
+    min-height: 2rem; padding: 0.35rem 0.7rem; border: 1px solid #334155;
+    border-radius: 0.375rem; background: #1e293b; color: #e2e8f0;
+    font-size: 0.78rem; font-weight: 600; cursor: pointer; flex: 0 0 auto;
+  }
+  .mobile-ui-settings-action:hover:not(:disabled) { border-color: #22d3ee; }
+  .mobile-ui-settings-action:disabled { cursor: default; opacity: 0.45; }
+  .mobile-ui-settings-help[data-state="success"] { color: #22c55e; }
+  .mobile-ui-settings-help[data-state="error"] { color: #f87171; }
+</style>
+
+<div class="mobile-ui-settings-panel">
+  <label class="mobile-ui-settings-row">
+    <span class="mobile-ui-settings-label">Enable mobile UI enhancements</span>
+    <input type="checkbox" class="mobile-ui-settings-toggle" id="mobile-ui-toggle">
+  </label>
+  <p class="mobile-ui-settings-help">
+    Applies phone and tablet layout improvements to the player, library, and other
+    screens. Disabling hides mobile-specific styling without unloading the plugin.
+  </p>
+
+  <label class="mobile-ui-settings-row" style="margin-top:1rem;">
+    <span class="mobile-ui-settings-label">Pause song when opening Player More controls</span>
+    <input type="checkbox" class="mobile-ui-settings-toggle" id="mobile-ui-pause-toggle">
+  </label>
+  <p class="mobile-ui-settings-help">
+    Pauses playback when you open the phone portrait Player More shelf.
+    Playback will not resume automatically when you close the shelf.
+  </p>
+
+  <label class="mobile-ui-settings-row" style="margin-top:1rem;">
+    <span class="mobile-ui-settings-label">Show Mobile UI debug view</span>
+    <input type="checkbox" class="mobile-ui-settings-toggle" id="mobile-ui-debug-toggle">
+  </label>
+  <p class="mobile-ui-settings-help">
+    Shows a small diagnostic overlay with current viewport, orientation, screen,
+    and runtime state.
+  </p>
+
+  <div class="mobile-ui-settings-row mobile-ui-settings-support-row" style="margin-top:1rem; cursor:default;">
+    <span class="mobile-ui-settings-label">3D camera controls</span>
+    <span class="mobile-ui-settings-support" id="mobile-ui-camera-support" data-state="checking">
+      <span id="mobile-ui-camera-support-label">Checking...</span>
+      <a class="mobile-ui-settings-support-link"
+         id="mobile-ui-camera-support-link"
+         href="https://github.com/saleemk/feedBack-plugin-mobile-ui#3d-highway-camera-support"
+         target="_blank"
+         rel="noopener noreferrer"
+         hidden>Setup</a>
+    </span>
+  </div>
+
+  <div class="mobile-ui-settings-row" style="margin-top:1rem; cursor:default;">
+    <span class="mobile-ui-settings-label">Saved 3D camera views</span>
+    <button type="button" class="mobile-ui-settings-action" id="mobile-ui-camera-reset-all"
+            aria-label="Reset all saved 3D camera views" disabled>
+      Reset all
+    </button>
+  </div>
+  <p class="mobile-ui-settings-help" id="mobile-ui-camera-reset-help" aria-live="polite">
+    Restores the default camera view for every phone and tablet orientation.
+  </p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var PAUSE_KEY = 'mobile_ui.pauseOnMoreOpen';
+  var DEBUG_KEY = 'mobile_ui.debug';
+  var CAMERA_VIEWS_CHANGED_EVENT = 'mobile-ui:highway-camera-views-changed';
+  var CAMERA_RESET_HELP = 'Restores the default camera view for every phone and tablet orientation.';
+  var installed = false;
+  var resetFeedbackTimer = null;
+
+  function readFlag(key) {
+    try { return window.localStorage.getItem(key) === '1'; } catch (_) { return false; }
+  }
+  function writeFlag(key, val) {
+    try { if (val) window.localStorage.setItem(key, '1'); else window.localStorage.removeItem(key); } catch (_) {}
+  }
+
+  function updateCameraSupport(api) {
+    var row = document.getElementById('mobile-ui-camera-support');
+    var label = document.getElementById('mobile-ui-camera-support-label');
+    var link = document.getElementById('mobile-ui-camera-support-link');
+    if (!row || !label || !link) return;
+
+    var support = null;
+    try {
+      support = api && typeof api.getHighwayCameraSupport === 'function'
+        ? api.getHighwayCameraSupport()
+        : null;
+    } catch (_) {}
+
+    row.dataset.state = support || 'unavailable';
+    label.hidden = false;
+    link.textContent = 'Setup';
+    if (support === 'ready') {
+      label.textContent = 'Ready';
+      link.hidden = true;
+    } else if (support === 'core-update-required') {
+      label.hidden = true;
+      link.textContent = 'Core update required. Click for more info';
+      link.hidden = false;
+    } else if (support === 'renderer-unavailable') {
+      label.textContent = 'Renderer unavailable';
+      link.hidden = false;
+    } else {
+      label.textContent = 'Status unavailable';
+      link.hidden = true;
+    }
+  }
+
+  function updateCameraReset(api) {
+    var button = document.getElementById('mobile-ui-camera-reset-all');
+    if (!button) return;
+
+    var hasSavedViews = false;
+    try {
+      hasSavedViews = !!(api && typeof api.hasSavedHighwayCameraViews === 'function' &&
+        api.hasSavedHighwayCameraViews());
+    } catch (_) {}
+    button.disabled = !hasSavedViews;
+  }
+
+  function setCameraResetFeedback(text, state) {
+    var help = document.getElementById('mobile-ui-camera-reset-help');
+    if (!help) return;
+    help.textContent = text;
+    help.dataset.state = state || '';
+
+    if (resetFeedbackTimer) clearTimeout(resetFeedbackTimer);
+    resetFeedbackTimer = setTimeout(function () {
+      help.textContent = CAMERA_RESET_HELP;
+      help.dataset.state = '';
+      resetFeedbackTimer = null;
+    }, 2500);
+  }
+
+  function init() {
+    var toggle = document.getElementById('mobile-ui-toggle');
+    var pauseToggle = document.getElementById('mobile-ui-pause-toggle');
+    var debugToggle = document.getElementById('mobile-ui-debug-toggle');
+    var cameraResetButton = document.getElementById('mobile-ui-camera-reset-all');
+    var api = window.__feedBackMobileUi;
+    updateCameraSupport(api);
+    updateCameraReset(api);
+
+    if (toggle && pauseToggle && debugToggle && api && api.isDisabled && api.enable && api.disable) {
+      if (installed) {
+        toggle.checked = !api.isDisabled();
+        pauseToggle.checked = readFlag(PAUSE_KEY);
+        debugToggle.checked = readFlag(DEBUG_KEY);
+        return;
+      }
+      installed = true;
+      toggle.checked = !api.isDisabled();
+      pauseToggle.checked = readFlag(PAUSE_KEY);
+      debugToggle.checked = readFlag(DEBUG_KEY);
+
+      toggle.addEventListener('change', function () {
+        if (toggle.checked) { api.enable(); } else { api.disable(); }
+        setTimeout(function () { toggle.checked = !api.isDisabled(); }, 100);
+      });
+
+      pauseToggle.addEventListener('change', function () {
+        writeFlag(PAUSE_KEY, pauseToggle.checked);
+      });
+
+      debugToggle.addEventListener('change', function () {
+        if (debugToggle.checked && api.enableDebug) {
+          api.enableDebug();
+        } else if (!debugToggle.checked && api.disableDebug) {
+          api.disableDebug();
+        } else {
+          writeFlag(DEBUG_KEY, debugToggle.checked);
+          if (api.refresh) api.refresh('settings:debug');
+        }
+        setTimeout(function () { debugToggle.checked = readFlag(DEBUG_KEY); }, 100);
+      });
+
+      if (cameraResetButton && typeof api.resetAllHighwayCameraViews === 'function') {
+        cameraResetButton.addEventListener('click', function () {
+          var reset = false;
+          try { reset = api.resetAllHighwayCameraViews(); } catch (_) {}
+          updateCameraReset(api);
+          setCameraResetFeedback(
+            reset ? 'All saved camera views reset.' : 'Could not reset saved camera views.',
+            reset ? 'success' : 'error'
+          );
+        });
+      }
+
+      window.addEventListener(CAMERA_VIEWS_CHANGED_EVENT, function () {
+        updateCameraReset(window.__feedBackMobileUi);
+      });
+    } else {
+      setTimeout(init, 200);
+    }
+  }
+
+  init();
+})();
+</script>

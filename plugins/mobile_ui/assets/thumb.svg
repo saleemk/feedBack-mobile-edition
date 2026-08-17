@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="fee[dB]ack Mobile UI">
+  <rect width="256" height="256" rx="36" fill="#0b1220"/>
+  <rect x="46" y="10" width="164" height="236" rx="34" fill="#111827" stroke="#94a3b8" stroke-width="5"/>
+  <rect x="108" y="23" width="40" height="5" rx="2.5" fill="#94a3b8"/>
+  <text x="128" y="122" text-anchor="middle" dominant-baseline="central"
+        font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+        font-weight="800" font-size="61" letter-spacing="-2">
+    <tspan fill="#94a3b8">[</tspan><tspan fill="#0ea5e9">dB</tspan><tspan fill="#94a3b8">]</tspan>
+  </text>
+  <rect x="105" y="226" width="46" height="5" rx="2.5" fill="#0ea5e9"/>
+</svg>

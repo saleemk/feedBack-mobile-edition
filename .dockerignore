@@ -44,6 +44,13 @@ plugins/*/
 !plugins/highway_3d/**
 !plugins/minigames/
 !plugins/minigames/**
+!plugins/mobile_ui/
+!plugins/mobile_ui/**
+!plugins/section_map/
+!plugins/section_map/**
+plugins/section_map/.claude/
+plugins/section_map/.github/
+plugins/section_map/.specify/
 !plugins/tuner/
 !plugins/tuner/**
 

@@ -1,0 +1,29 @@
+services:
+  web:
+    image: ghcr.io/saleemk/feedback@sha256:8d5af80c308e7e1be4e4cc9f54b8dc04aac92f5c8ae09c540835975e4ebf991c
+    ports:
+      - "127.0.0.1:${FEEDBACK_CAMERA_PREVIEW_PORT:-8000}:8000"
+    volumes:
+      - type: bind
+        source: "${FEEDBACK_LIBRARY_PATH:?Set FEEDBACK_LIBRARY_PATH to an existing host song-library folder}"
+        target: /dlc
+        bind:
+          create_host_path: false
+      - type: volume
+        source: feedback_config
+        target: /config
+      - type: bind
+        source: .
+        target: /app/plugins/mobile_ui
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      DLC_DIR: /dlc
+      CONFIG_DIR: /config
+    restart: unless-stopped
+
+volumes:
+  feedback_config:
+    external: true
+    name: "${FEEDBACK_CONFIG_VOLUME:?Set FEEDBACK_CONFIG_VOLUME to the existing Docker config-volume name}"

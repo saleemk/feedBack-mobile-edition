@@ -1,0 +1,27 @@
+services:
+  web:
+    build:
+      context: .
+      args:
+        FFMPEG_RELEASE: autobuild-2026-07-31-14-10
+        FFMPEG_BUILD_AMD64: ffmpeg-n7.1.5-12-g1fdbca85aa-linux64-gpl-7.1.tar.xz
+        FFMPEG_BUILD_ARM64: ffmpeg-n7.1.5-12-g1fdbca85aa-linuxarm64-gpl-7.1.tar.xz
+        FFMPEG_SHA256_AMD64: c1e6caf48923dd8e6bc5e54d51ba70c321175b8162ae9c414c392990e72f0e79
+        FFMPEG_SHA256_ARM64: a9a50c5782ef5e45306d58d1a9a819015b472d8da30ab6a77f15f571c861a71b
+    ports:
+      - "${FEEDBACK_PORT:-8000}:8000"
+    volumes:
+      - ${LIBRARY_PATH:-./library}:/dlc
+      - feedback-mobile-edition-config:/config
+    environment:
+      PYTHONPATH: /app/lib:/app
+      DLC_DIR: /dlc
+      CONFIG_DIR: /config
+      STATIC_DIR: /app/static
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    restart: unless-stopped
+
+volumes:
+  feedback-mobile-edition-config:

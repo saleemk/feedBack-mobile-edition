@@ -1,0 +1,473 @@
+// Section Map plugin
+// Shows a minimap bar of the full song structure with clickable sections.
+
+let _smBar = null;
+let _smSections = [];
+let _smDuration = 0;
+let _smDrag = null;
+let _smSuppressNextClick = false;
+
+const SM_DRAG_THRESHOLD_PX = 6;
+
+const SM_COLORS = {
+    'intro': '#3b82f6',
+    'verse': '#22c55e',
+    'chorus': '#eab308',
+    'bridge': '#a855f7',
+    'solo': '#ef4444',
+    'outro': '#6b7280',
+    'breakdown': '#f97316',
+    'riff': '#06b6d4',
+    'pre': '#84cc16',
+    'noguitar': '#374151',
+    'default': '#4b5563',
+};
+
+function _smGetColor(name) {
+    const low = name.toLowerCase();
+    for (const [key, color] of Object.entries(SM_COLORS)) {
+        if (low.includes(key)) return color;
+    }
+    return SM_COLORS.default;
+}
+
+function _smCreate() {
+    if (_smBar) return;
+    const player = document.getElementById('player');
+    if (!player) return;
+
+    _smBar = document.createElement('div');
+    _smBar.id = 'section-map';
+    _smBar.style.cssText = 'position:absolute;top:0;left:0;right:0;z-index:25;height:20px;background:rgba(8,8,16,0.7);cursor:pointer;touch-action:none;';
+
+    // Insert as first child of player (very top)
+    player.insertBefore(_smBar, player.firstChild);
+
+    _smBar.addEventListener('click', _smOnClick);
+    _smBar.addEventListener('wheel', _smOnWheel, { passive: false });
+    _smBar.addEventListener('pointerdown', _smOnPointerDown, { passive: true });
+    _smBar.addEventListener('pointermove', _smOnPointerMove, { passive: false });
+    _smBar.addEventListener('pointerup', _smOnPointerUp, { passive: false });
+    _smBar.addEventListener('pointercancel', _smOnPointerCancel, { passive: true });
+    _smBar.addEventListener('lostpointercapture', _smOnLostPointerCapture, { passive: true });
+}
+
+function _smRemove() {
+    _smClearDrag();
+    if (_smBar) {
+        _smBar.removeEventListener('click', _smOnClick);
+        _smBar.removeEventListener('wheel', _smOnWheel);
+        _smBar.removeEventListener('pointerdown', _smOnPointerDown);
+        _smBar.removeEventListener('pointermove', _smOnPointerMove);
+        _smBar.removeEventListener('pointerup', _smOnPointerUp);
+        _smBar.removeEventListener('pointercancel', _smOnPointerCancel);
+        _smBar.removeEventListener('lostpointercapture', _smOnLostPointerCapture);
+        _smBar.remove();
+        _smBar = null;
+    }
+    _smSuppressNextClick = false;
+}
+
+function _smResetSongState() {
+    _smSections = [];
+    _smDuration = 0;
+}
+
+function _smHighway() {
+    if (typeof highway !== 'undefined' && highway) return highway;
+    if (typeof window !== 'undefined' && window.highway) return window.highway;
+    return null;
+}
+
+function _smIsPlayerActive() {
+    if (typeof document === 'undefined') return false;
+    const active = document.querySelector?.('.screen.active');
+    if (active) return active.id === 'player';
+    const player = document.getElementById?.('player');
+    return !!(player && player.classList && player.classList.contains('active'));
+}
+
+function _smHasSongData() {
+    const hw = _smHighway();
+    if (!hw || typeof hw.getSections !== 'function' || typeof hw.getSongInfo !== 'function') return false;
+    const sections = hw.getSections();
+    const info = hw.getSongInfo();
+    return !!(sections && sections.length && info && info.duration);
+}
+
+function _smMaybeCreate() {
+    if (!_smIsPlayerActive() || !_smHasSongData()) return;
+    _smCreate();
+}
+
+// The playback clock, across whichever backend is driving audio. getTime() is
+// the audio-aligned clock the host exposes to plugins; the raw <audio> element
+// is only a fallback (and is stale when a native/streaming backend is playing).
+function _smNow() {
+    const hw = _smHighway();
+    if (hw && typeof hw.getTime === 'function') {
+        const t = hw.getTime();
+        if (Number.isFinite(t)) return t;
+    }
+    const audio = document.getElementById('audio');
+    return audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+}
+
+// Reposition through the host's canonical seek funnel (window.feedBack.seek ->
+// _audioSeek). It moves whichever backend is ACTUALLY playing — JUCE native
+// output, or the bounded-memory stem-streaming worklet, which only reseeks in
+// response to the song:seek event the funnel emits — and keeps the highway
+// clock in sync. Poking audio.currentTime directly only relocates regions the
+// <audio> element has already buffered near the playhead, so once playback
+// moved off that element (native routing + stem streaming) far sections stopped
+// seeking — they land in an unbuffered/unstreamed region and snap back. The raw
+// path stays only as a fallback for a host old enough to lack the seek API.
+function _smSeek(time, reason) {
+    // Clamp centrally so every caller (click passes a raw pct*duration; a pct
+    // just over 1 at the bar's right edge would otherwise seek past the end).
+    const max = (typeof _smDuration === 'number' && _smDuration > 0) ? _smDuration : Infinity;
+    const t = Math.max(0, Math.min(max, time));
+    const host = (typeof window !== 'undefined') && (window.feedBack || window.slopsmith);
+    if (host && typeof host.seek === 'function') {
+        host.seek(t, reason);
+        return;
+    }
+    const audio = document.getElementById('audio');
+    if (!audio) return;
+    // Legacy fallback: keep the jump detector from reverting the seek, and
+    // pause/seek/resume because seeking during playback fails on unbuffered regions.
+    if (typeof lastAudioTime !== 'undefined') lastAudioTime = t;
+    const wasPlaying = !audio.paused;
+    if (wasPlaying) audio.pause();
+    audio.currentTime = t;
+    if (wasPlaying) {
+        audio.addEventListener('seeked', function resume() {
+            audio.removeEventListener('seeked', resume);
+            audio.play();
+        }, { once: true });
+    }
+}
+
+function _smOnClick(e) {
+    if (!_smDuration) return;
+    if (_smSuppressNextClick) {
+        _smSuppressNextClick = false;
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        return;
+    }
+    const rect = _smBar.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    _smSeek(pct * _smDuration, 'sectionmap-click');
+}
+
+function _smOnWheel(e) {
+    if (!_smDuration) return;
+    e.preventDefault();
+    // up (negative deltaY) = forward, down (positive deltaY) = backward
+    const increment = e.ctrlKey ? 0.1 : 1; // Fine control with Ctrl modifier
+    const deltaTime = -(e.deltaY > 0 ? 1 : -1) * increment;
+    const newTime = Math.max(0, Math.min(_smDuration, _smNow() + deltaTime));
+    _smSeek(newTime, 'sectionmap-wheel');
+}
+
+function _smOnPointerDown(e) {
+    if (!_smBar || !_smDuration || _smDrag) return;
+    if (e.isPrimary === false) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    _smSuppressNextClick = false;
+    _smDrag = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        active: false,
+        captured: false,
+        markerTransition: null,
+        labelText: null,
+        labelWidth: 0,
+    };
+}
+
+function _smOnPointerMove(e) {
+    if (!_smDrag || e.pointerId !== _smDrag.pointerId || !_smBar || !_smDuration) return;
+
+    if (!_smDrag.active) {
+        const dx = e.clientX - _smDrag.startX;
+        const dy = e.clientY - _smDrag.startY;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        if (absDx < SM_DRAG_THRESHOLD_PX || absDx <= absDy) return;
+        _smStartDragPreview(e);
+    }
+
+    e.preventDefault?.();
+    _smPreviewAtClientX(e.clientX);
+}
+
+function _smOnPointerUp(e) {
+    if (!_smDrag || e.pointerId !== _smDrag.pointerId) return;
+    const wasActive = _smDrag.active;
+    const fraction = _smPointerFraction(e.clientX);
+    _smClearDrag();
+
+    if (!wasActive || !_smDuration) return;
+    _smPreviewMarker(fraction);
+    _smSeek(fraction * _smDuration, 'sectionmap-drag');
+    _smSuppressNextClick = true;
+    e.preventDefault?.();
+    e.stopPropagation?.();
+}
+
+function _smOnPointerCancel(e) {
+    if (_smDrag && e.pointerId === _smDrag.pointerId) {
+        _smClearDrag();
+    }
+}
+
+function _smOnLostPointerCapture(e) {
+    if (_smDrag && e.pointerId === _smDrag.pointerId) {
+        if (e.target && e.target !== _smBar) return;
+        _smClearDrag({ releaseCapture: false });
+    }
+}
+
+function _smOnScreenChanging(e) {
+    const detail = e && e.detail;
+    if (detail && detail.from === 'player' && detail.id !== 'player') {
+        _smRemove();
+    }
+}
+
+function _smOnScreenChanged(e) {
+    const detail = e && e.detail;
+    if (detail && detail.id === 'player') _smMaybeCreate();
+}
+
+function _smOnSongLoading() {
+    _smRemove();
+    _smResetSongState();
+}
+
+function _smOnSongLifecycle() {
+    _smMaybeCreate();
+}
+
+function _smStartDragPreview(e) {
+    const marker = document.getElementById('sm-marker');
+    _smDrag.active = true;
+    _smDrag.markerTransition = marker ? marker.style.transition : null;
+
+    try {
+        _smBar.setPointerCapture?.(e.pointerId);
+        _smDrag.captured = true;
+    } catch (_) {
+        _smDrag.captured = false;
+    }
+}
+
+function _smPreviewAtClientX(clientX) {
+    const fraction = _smPointerFraction(clientX);
+    _smPreviewMarker(fraction, { drag: true });
+    _smPreviewTimeLabel(fraction);
+}
+
+function _smPreviewMarker(fraction, opts = {}) {
+    const marker = document.getElementById('sm-marker');
+    if (!marker) return;
+    if (opts.drag) marker.style.transition = 'none';
+    marker.style.left = (_smClampFraction(fraction) * 100) + '%';
+}
+
+function _smPreviewTimeLabel(fraction) {
+    const label = document.getElementById('sm-drag-time');
+    if (!label || !_smBar || !_smDuration || !_smDrag) return;
+
+    const clamped = _smClampFraction(fraction);
+    const text = _smFmt(clamped * _smDuration) + ' / ' + _smFmt(_smDuration);
+    label.style.display = 'block';
+    if (_smDrag.labelText !== text) {
+        label.textContent = text;
+        _smDrag.labelText = text;
+        _smDrag.labelWidth = label.offsetWidth;
+    }
+
+    const rect = _smBar.getBoundingClientRect();
+    const halfWidth = Math.min(_smDrag.labelWidth / 2, rect.width / 2);
+    const x = Math.max(halfWidth, Math.min(rect.width - halfWidth, clamped * rect.width));
+    label.style.left = x + 'px';
+}
+
+function _smHideTimeLabel() {
+    const label = document.getElementById('sm-drag-time');
+    if (label) label.style.display = 'none';
+}
+
+function _smClearDrag(opts = {}) {
+    const drag = _smDrag;
+    _smHideTimeLabel();
+    if (!drag) return;
+    _smDrag = null;
+
+    const marker = document.getElementById('sm-marker');
+    if (marker && drag.markerTransition != null) {
+        marker.style.transition = drag.markerTransition;
+    }
+
+    if (opts.releaseCapture !== false && drag.captured && _smBar) {
+        try {
+            _smBar.releasePointerCapture?.(drag.pointerId);
+        } catch (_) {
+            /* ignore */
+        }
+    }
+}
+
+function _smPointerFraction(clientX) {
+    if (!_smBar) return 0;
+    const rect = _smBar.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return _smClampFraction((clientX - rect.left) / rect.width);
+}
+
+function _smClampFraction(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+}
+
+function _smUpdate() {
+    if (!_smBar) return;
+    const hw = _smHighway();
+    if (!hw || typeof hw.getSections !== 'function' || typeof hw.getSongInfo !== 'function') return;
+    const sections = hw.getSections();
+    const info = hw.getSongInfo();
+    const t = typeof hw.getTime === 'function' ? hw.getTime() : 0;
+
+    if (!sections || sections.length === 0 || !info.duration) return;
+
+    _smDuration = info.duration;
+
+    // Only rebuild if sections changed
+    if (sections !== _smSections) {
+        _smSections = sections;
+        _smRender();
+    }
+
+    // Update playback position indicator
+    const marker = document.getElementById('sm-marker');
+    if (marker && _smDuration > 0 && !(_smDrag && _smDrag.active)) {
+        const pct = (t / _smDuration) * 100;
+        marker.style.left = pct + '%';
+    }
+
+    // Highlight active section
+    const blocks = _smBar.querySelectorAll('.sm-block');
+    let activeIdx = 0;
+    for (let i = 0; i < _smSections.length; i++) {
+        if (_smSections[i].time <= t) activeIdx = i;
+        else break;
+    }
+    blocks.forEach((block, i) => {
+        block.style.opacity = i === activeIdx ? '1' : '0.5';
+    });
+}
+
+function _smRender() {
+    if (!_smBar || !_smSections.length || !_smDuration) return;
+
+    let html = '';
+
+    for (let i = 0; i < _smSections.length; i++) {
+        const sec = _smSections[i];
+        const nextTime = i < _smSections.length - 1 ? _smSections[i + 1].time : _smDuration;
+        const startPct = (sec.time / _smDuration) * 100;
+        const widthPct = ((nextTime - sec.time) / _smDuration) * 100;
+        const color = _smGetColor(sec.name);
+
+        // Clean up section name for display
+        let label = sec.name.replace(/\d+$/, '').trim();
+        label = label.charAt(0).toUpperCase() + label.slice(1);
+
+        html += `<div class="sm-block" style="position:absolute;left:${startPct}%;width:${widthPct}%;top:0;bottom:0;background:${color};border-right:1px solid rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;overflow:hidden;transition:opacity 0.15s;"
+            title="${label} (${_smFmt(sec.time)})">
+            <span style="font-size:9px;color:rgba(255,255,255,0.8);white-space:nowrap;text-overflow:ellipsis;overflow:hidden;padding:0 3px;">${label}</span>
+        </div>`;
+    }
+
+    // Playback position marker
+    html += '<div id="sm-marker" style="position:absolute;top:0;bottom:0;width:2px;background:white;z-index:1;pointer-events:none;transition:left 0.1s linear;"></div>';
+
+    // Active drag target time
+    html += '<div id="sm-drag-time" style="position:absolute;top:calc(100% + 4px);left:0;display:none;transform:translateX(-50%);z-index:20;padding:2px 6px;border-radius:4px;background:rgba(8,8,16,0.92);color:white;font-size:11px;line-height:1.2;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,0.45);"></div>';
+
+    _smBar.innerHTML = html;
+    _smBar.style.position = 'relative';
+}
+
+function _smFmt(s) {
+    return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+}
+
+function _smTick() {
+    _smMaybeCreate();
+    _smUpdate();
+}
+
+// Node-only export hook for tests; browsers fall through to the side-effect
+// IIFE below (poller + screen lifecycle hook + playSong wrapper).
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        _smGetColor, _smFmt, _smCreate, _smRemove, _smUpdate, _smRender,
+        _smOnClick, _smOnWheel, _smOnPointerDown, _smOnPointerMove,
+        _smOnPointerUp, _smOnPointerCancel, _smOnLostPointerCapture,
+        _smOnScreenChanging, _smOnScreenChanged, _smOnSongLoading,
+        _smOnSongLifecycle, _smMaybeCreate, _smTick,
+        _getState: () => ({
+            bar: _smBar,
+            sections: _smSections,
+            duration: _smDuration,
+            drag: _smDrag,
+            suppressNextClick: _smSuppressNextClick,
+        }),
+        _setState(next) {
+            if ('sections' in next) _smSections = next.sections;
+            if ('duration' in next) _smDuration = next.duration;
+            if ('bar' in next) _smBar = next.bar;
+            if ('drag' in next) _smDrag = next.drag;
+            if ('suppressNextClick' in next) _smSuppressNextClick = next.suppressNextClick;
+        },
+    };
+} else {
+
+// Side effects: poller, screen lifecycle hook, and playSong wrapper. Consolidated
+// under one idempotency guard so re-evaluation (loader cache miss, hot reload,
+// older core builds without the load-side guard) doesn't start a second 5Hz
+// poller, duplicate the screen subscription, or grow the playSong wrapper chain.
+(function() {
+    const HOOK_KEY = '__slopsmithSectionMapHooksInstalled';
+    if (window[HOOK_KEY]) return;
+    window[HOOK_KEY] = true;
+
+    // Poll for updates and recover if the plugin loads after lifecycle events.
+    setInterval(_smTick, 200);
+
+    if (window.feedBack && typeof window.feedBack.on === 'function') {
+        window.feedBack.on('screen:changing', _smOnScreenChanging);
+        window.feedBack.on('screen:changed', _smOnScreenChanged);
+        window.feedBack.on('song:loading', _smOnSongLoading);
+        window.feedBack.on('song:loaded', _smOnSongLifecycle);
+        window.feedBack.on('song:ready', _smOnSongLifecycle);
+    }
+
+    // Hook into playSong
+    const origPlaySong = window.playSong;
+    window.playSong = async function(filename, arrangement) {
+        _smRemove();
+        _smResetSongState();
+        await origPlaySong(filename, arrangement);
+        _smCreate();
+    };
+
+})();
+
+}

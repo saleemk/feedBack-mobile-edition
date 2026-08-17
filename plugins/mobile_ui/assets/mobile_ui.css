@@ -1,0 +1,4605 @@
+/* Mobile UI plugin.
+   The runtime applies reversible classification classes to <html>:
+   - mobile-ui-enabled
+   - mobile-ui-phone / mobile-ui-tablet / mobile-ui-desktop
+   - mobile-ui-portrait / mobile-ui-landscape
+   - mobile-ui-standalone
+   - mobile-ui-v3
+   - mobile-ui-screen-*
+
+   Conventions:
+   - Most rules are scoped under html.mobile-ui-enabled.mobile-ui-v3.
+   - Desktop is left to core unless explicitly scoped otherwise.
+   - !important is used where core/Tailwind/plugin load order requires it.
+
+   CSS architecture:
+   - plugin.json currently supports one manifest-loaded stylesheet.
+   - Keep this file as the single loaded CSS file for now.
+   - Avoid JS-driven CSS injection unless a feature clearly needs it.
+   - If splitting becomes necessary later, prefer a build-free manifest wrapper
+     that @imports ordered subfiles.
+   - Player CSS is the first extraction candidate.
+   - Preserve cascade order during any future split.
+
+   Sections:
+   1. Diagnostics / debug
+   2. Shell / topbar status rail
+   3. Shell / mobile drawer
+   4. Song Library
+   5. Home
+   6. Progress
+   7. Settings
+   8. Plugins
+   9. Collections
+   10. Lessons / FeedBarcade / Unlockables
+   11. Player shared cleanup
+   12. Player phone portrait More shelf
+   13. Player panels / Practice
+   14. Player tablet direct controls
+   15. Player phone low-height landscape
+   16. Optional integrations: Section Map / tour
+*/
+
+/* 0. Preboot — hide old core navigation on touch devices before the
+   JS runtime initialises, preventing a flash of the sidebar/hamburger
+   on page refresh.  screen.js adds `mobile-ui-preboot-touch-nav` on
+   touch-width viewports when Mobile UI is not disabled; main.js removes
+   it once the real bottom-nav classes are in place. */
+
+html.mobile-ui-preboot-touch-nav #v3-sidebar,
+html.mobile-ui-preboot-touch-nav #v3-sidebar-backdrop,
+html.mobile-ui-preboot-touch-nav #v3-hamburger {
+  display: none !important;
+}
+
+/* 1. Diagnostics / debug */
+
+.mobile-ui-debug-overlay {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2147483000;
+  max-width: min(390px, calc(100vw - 16px));
+  max-height: min(70vh, 34rem);
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.86);
+  color: rgba(248, 250, 252, 0.94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+html.mobile-ui-has-bottom-nav .mobile-ui-debug-overlay {
+  bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
+html.mobile-ui-phone.mobile-ui-landscape.mobile-ui-has-bottom-nav .mobile-ui-debug-overlay {
+  bottom: calc(4.75rem + env(safe-area-inset-bottom));
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-debug-overlay {
+  bottom: calc(4.75rem + env(safe-area-inset-bottom));
+}
+
+.mobile-ui-debug-overlay-collapsed {
+  max-width: min(280px, calc(100vw - 16px));
+  overflow: hidden;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.mobile-ui-debug-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.45rem 0.65rem;
+  border: 0;
+  border-radius: inherit;
+  background: rgba(15, 23, 42, 0.92);
+  color: rgba(248, 250, 252, 0.94);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-ui-debug-toggle span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-ui-debug-toggle span:last-child {
+  color: #7dd3fc;
+  font-weight: 700;
+}
+
+.mobile-ui-debug-body {
+  padding-top: 0.45rem;
+  pointer-events: none;
+}
+
+.mobile-ui-debug-overlay-collapsed .mobile-ui-debug-body {
+  display: none;
+}
+
+.mobile-ui-debug-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.mobile-ui-debug-copy {
+  flex: 0 0 auto;
+  min-height: 1.7rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.16);
+  color: #7dd3fc;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-ui-debug-overlay pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre;
+}
+
+.mobile-ui-debug-overlay strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #7dd3fc;
+}
+
+.mobile-ui-debug-overlay hr {
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  margin: 4px 0;
+}
+
+/* 2. Shell / topbar status rail
+   Compact the global v3 status widgets on phone/tablet while leaving desktop intact. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone .mobile-ui-topbar-status-row {
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 0.35rem !important;
+  padding: 0.4rem 0.5rem 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone .mobile-ui-topbar-status-rail {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex-shrink: 0 !important;
+  gap: 0.25rem !important;
+  overflow: visible;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-topbar-title {
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: none !important;
+  font-size: 1rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-tuner [data-open-tuner] {
+  width: 3.65rem !important;
+  height: 3.45rem !important;
+  gap: 0.25rem !important;
+  padding: 0.3rem 0.35rem !important;
+  border-radius: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-tuner [data-open-tuner] > div:first-child {
+  gap: 1px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-tuner [data-tuner-seg] {
+  width: 0.8rem !important;
+  height: 2px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-tuner [data-tuner-note] {
+  font-size: 1.05rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-tuner [data-tuner-hz] {
+  font-size: 0.5rem !important;
+  margin-top: 1px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-instrument [data-inst-toggle] {
+  width: 3.15rem !important;
+  height: 3.45rem !important;
+  gap: 0.2rem !important;
+  border-radius: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-instrument [data-inst-toggle] span {
+  font-size: 0.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-instrument [data-inst-toggle] svg {
+  width: 0.85rem !important;
+  height: 0.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] {
+  max-width: 6.35rem !important;
+  min-height: 3.45rem !important;
+  gap: 0.3rem !important;
+  padding: 0.3rem 0.4rem !important;
+  border-radius: 0.8rem !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-avatar-tile] {
+  width: 1.8rem !important;
+  height: 1.8rem !important;
+  border-radius: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] svg {
+  width: 0.8rem !important;
+  height: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) {
+  min-width: 0;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:first-child {
+  gap: 0.2rem !important;
+  margin-bottom: 0.15rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:first-child span {
+  font-size: 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) {
+  gap: 0.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:first-child span:first-child,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2),
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > span {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:first-child span:last-child {
+  font-size: 0.9rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet .mobile-ui-topbar-status-row {
+  gap: 0.55rem !important;
+  padding-top: 0.55rem !important;
+  padding-bottom: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet .mobile-ui-topbar-status-rail {
+  gap: 0.4rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-tuner [data-open-tuner] {
+  width: 4.75rem !important;
+  height: 4.25rem !important;
+  gap: 0.45rem !important;
+  padding: 0.45rem 0.55rem !important;
+  border-radius: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-tuner [data-open-tuner] > div:first-child {
+  gap: 2px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-tuner [data-tuner-seg] {
+  width: 1rem !important;
+  height: 2px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-tuner [data-tuner-note] {
+  font-size: 1.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-instrument [data-inst-toggle] {
+  width: 3.65rem !important;
+  height: 4.25rem !important;
+  border-radius: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] {
+  min-height: 4.25rem !important;
+  gap: 0.45rem !important;
+  padding: 0.45rem 0.6rem !important;
+  border-radius: 1rem !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-profile [data-v3-avatar-tile] {
+  width: 2.35rem !important;
+  height: 2.35rem !important;
+  border-radius: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) {
+  gap: 2px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > span {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet.mobile-ui-portrait .mobile-ui-topbar-status-row {
+  flex-direction: column !important;
+  align-items: flex-start !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet.mobile-ui-portrait .mobile-ui-topbar-status-rail {
+  width: 100%;
+  max-width: 100%;
+  flex-shrink: 0 !important;
+  overflow: visible;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet.mobile-ui-portrait #v3-topbar-title {
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: none !important;
+}
+
+/* 3. Shell / mobile drawer
+   Core owns drawer open/close behavior; mobile_ui only softens mobile/tablet shell styling. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-sidebar {
+  width: clamp(12.5rem, 54vw, 13rem) !important;
+  padding-top: max(0.25rem, env(safe-area-inset-top)) !important;
+  border-right-color: rgba(96, 165, 250, 0.22) !important;
+  background-image:
+    radial-gradient(circle at 30% 0%, rgba(37, 99, 235, 0.22) 0%, rgba(15, 23, 42, 0.08) 34%, transparent 62%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(10, 15, 28, 0.98)) !important;
+  box-shadow:
+    18px 0 46px rgba(0, 0, 0, 0.48),
+    inset -1px 0 0 rgba(148, 163, 184, 0.08);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-brand {
+  padding: 0.95rem 0.9rem 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-brand img {
+  max-width: 10rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-nav {
+  padding-left: 0.65rem !important;
+  padding-right: 0.65rem !important;
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-nav a[data-v3-nav] {
+  min-height: 2.7rem;
+  gap: 0.65rem !important;
+  padding-left: 0.7rem !important;
+  padding-right: 0.7rem !important;
+  border-radius: 0.9rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-nav a[data-v3-nav] svg {
+  width: 1.1rem !important;
+  height: 1.1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-nav a[data-v3-nav] .v3-nav-label {
+  font-size: 0.86rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-nav a[data-v3-nav].bg-fb-card {
+  background: rgba(30, 41, 59, 0.78) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-sidebar-backdrop {
+  background: rgba(2, 6, 23, 0.74) !important;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-sidebar {
+  width: 15.5rem !important;
+  border-right-color: rgba(96, 165, 250, 0.18) !important;
+  box-shadow: 18px 0 50px rgba(0, 0, 0, 0.36);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-sidebar-backdrop {
+  background: rgba(2, 6, 23, 0.6) !important;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+/* 3.1  Bottom navigation bar
+   Touch navigation uses one model across phone and tablet: fixed Home plus a
+   horizontally scrollable destination strip sourced from the core sidebar nav. */
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone,.mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-bottom-nav {
+  position: fixed;
+  left: max(0.5rem, env(safe-area-inset-left));
+  right: max(0.5rem, env(safe-area-inset-right));
+  bottom: calc(max(0.45rem, env(safe-area-inset-bottom)) + 0.45rem);
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.35rem;
+  height: 3.75rem;
+  padding: 0 0.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
+  pointer-events: auto;
+}
+
+html.mobile-ui-screen-player .mobile-ui-bottom-nav {
+  display: none !important;
+}
+
+.mobile-ui-bottom-nav-fixed {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-right: 0.35rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.mobile-ui-bottom-nav-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-ui-bottom-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-ui-bottom-nav-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 3rem;
+  padding: 0 0.9rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.75);
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.mobile-ui-bottom-nav-fixed .mobile-ui-bottom-nav-item {
+  min-width: 4.6rem;
+  padding-inline: 0.95rem;
+}
+
+.mobile-ui-bottom-nav-scroll .mobile-ui-bottom-nav-item {
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.mobile-ui-bottom-nav-item:active {
+  color: rgba(226, 232, 240, 0.85);
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.mobile-ui-bottom-nav-item.is-active {
+  color: #67e8f9 !important;
+  background: rgba(34, 211, 238, 0.15) !important;
+}
+
+/* 3.2  Content padding and core chrome hiding when bottom nav is present.
+   shell.js adds `mobile-ui-has-bottom-nav` to <html> when the nav is created
+   and removes it when destroyed. */
+
+html.mobile-ui-has-bottom-nav #v3-main {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom)) !important;
+}
+
+/* Hide the old core hamburger and sidebar when the bottom nav is the
+   primary navigation. The sidebar DOM stays intact as the nav data source. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-has-bottom-nav #v3-hamburger {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-has-bottom-nav #v3-sidebar {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-has-bottom-nav #v3-sidebar-backdrop {
+  display: none !important;
+}
+
+/* 3.3  Landscape / tablet variants.
+   Same fixed Home + scroll-strip architecture, with tighter phone landscape
+   sizing and a wider centered tablet island. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav {
+  height: 3.25rem;
+  padding: 0 0.25rem;
+  gap: 0.25rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav-item {
+  height: 2.75rem;
+  font-size: 0.65rem;
+  padding-inline: 0.72rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape.mobile-ui-has-bottom-nav #v3-main {
+  padding-bottom: calc(4.75rem + env(safe-area-inset-bottom)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav-fixed {
+  padding-right: 0.25rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav-fixed .mobile-ui-bottom-nav-item {
+  min-width: 3.85rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav-scroll {
+  gap: 0.22rem;
+}
+
+/* iOS standalone can mis-hit-test blurred fixed layers after portrait →
+   landscape rotation.  Keep the nav fixed and visually close, but avoid the
+   backdrop-filter path only in standalone phone landscape. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-standalone.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background: rgba(15, 23, 42, 0.9) !important;
+}
+
+/* iOS standalone can report a negative visual viewport origin after rotating
+   from portrait to landscape.  main.js measures the live offset and applies
+   this class only while that bug is present. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-standalone.mobile-ui-phone.mobile-ui-landscape.mobile-ui-ios-vv-offset-bug:not(.mobile-ui-screen-player) #v3-main {
+  transform: translateY(calc(-1 * var(--mobile-ui-ios-vv-offset-fix, 0px))) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-standalone.mobile-ui-phone.mobile-ui-landscape.mobile-ui-ios-vv-offset-bug:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav {
+  bottom: calc(max(0.45rem, env(safe-area-inset-bottom)) + 0.45rem + var(--mobile-ui-ios-vv-offset-fix, 0px)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: min(56rem, calc(100vw - 2rem));
+  gap: 0.35rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav-item {
+  font-size: 0.72rem;
+  padding-inline: 1rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet:not(.mobile-ui-screen-player) .mobile-ui-bottom-nav-fixed .mobile-ui-bottom-nav-item {
+  min-width: 5rem;
+}
+
+/* 4. Song Library
+   Toolbar, content, and sticky behavior are scoped to the library screen. */
+
+/* Song Library base mobile/tablet layout. */
+
+/* Shared non-Home touch topbar layout.
+   Non-Home screens use title + Support on row 1, status cards on row 2.
+   Library adds the core search wrapper as row 3 below the status cards. */
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) #v3-topbar {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto !important;
+  align-items: center !important;
+  gap: 0.35rem 0.6rem !important;
+  padding: 0.45rem 0.55rem 0.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) #v3-topbar > .flex:first-child,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) #v3-topbar > .flex:last-child {
+  display: contents !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) #v3-hamburger {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) #v3-topbar-title {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  width: auto !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) #v3-topbar a[href*="patreon"] {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  align-self: center !important;
+  margin-left: 0 !important;
+  white-space: nowrap !important;
+  font-size: 0.66rem !important;
+  line-height: 1 !important;
+  padding: 0.28rem 0.5rem !important;
+  gap: 0.25rem !important;
+  border-radius: 0.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) #v3-topbar a[href*="patreon"] svg {
+  width: 0.75rem !important;
+  height: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):is(.mobile-ui-screen-library, .mobile-ui-screen-career, .mobile-ui-screen-progress, .mobile-ui-screen-plugins, .mobile-ui-screen-settings, .mobile-ui-screen-playlists, .mobile-ui-screen-favorites, .mobile-ui-screen-saved, .mobile-ui-screen-lessons, .mobile-ui-screen-feedbarcade, .mobile-ui-screen-unlockables) .mobile-ui-topbar-status-rail {
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  justify-content: flex-start !important;
+  align-items: stretch !important;
+  overflow: visible !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-topbar {
+  overflow-x: clip !important;
+  overflow-y: visible !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-instrument-wrap {
+  overflow: visible !important;
+  z-index: 45 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui {
+  left: 0 !important;
+  right: auto !important;
+  width: min(18rem, calc(100vw - 1rem)) !important;
+  max-width: min(18rem, calc(100vw - 1rem)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-menu] {
+  left: 0 !important;
+  right: auto !important;
+  max-width: min(15rem, calc(100vw - 1rem)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-menu] {
+  box-sizing: border-box !important;
+  background: rgba(15, 23, 42, 0.98) !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  border-radius: 1rem !important;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  color: #e2e8f0 !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.15) !important;
+  backdrop-filter: blur(18px) saturate(1.15) !important;
+  max-height: min(72vh, 28rem) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui {
+  padding: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui > div:first-child {
+  margin-bottom: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui > div:first-child > div {
+  color: rgba(203, 213, 225, 0.82) !important;
+  letter-spacing: 0.06em !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-string-order-help,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-mic-error {
+  color: rgba(203, 213, 225, 0.78) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-save-label,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-verify-btn,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-skip-btn,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-back-btn {
+  min-height: 2rem !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  background: rgba(30, 41, 59, 0.54) !important;
+  color: rgba(226, 232, 240, 0.82) !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-save-label:hover,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-verify-btn:hover,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-skip-btn:hover,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui .tuner-back-btn:hover {
+  border-color: rgba(125, 211, 252, 0.5) !important;
+  color: #e0f2fe !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui button[role="switch"] {
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-menu] {
+  width: min(15rem, calc(100vw - 1rem)) !important;
+  padding: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-menu] > div {
+  min-width: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-menu] .text-fb-textDim,
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-ref-val] {
+  color: rgba(203, 213, 225, 0.78) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-pill],
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-reset] {
+  min-height: 2rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  border-radius: 0.55rem !important;
+  background: rgba(30, 41, 59, 0.58) !important;
+  color: rgba(226, 232, 240, 0.82) !important;
+  line-height: 1 !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-pill].bg-fb-primary {
+  border-color: rgba(125, 211, 252, 0.46) !important;
+  background: rgba(37, 99, 235, 0.72) !important;
+  color: #ffffff !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-tuning],
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-pathway] {
+  min-height: 2.15rem !important;
+  max-width: 100% !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  border-radius: 0.6rem !important;
+  background-color: rgba(15, 23, 42, 0.7) !important;
+  color: #e2e8f0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-ref] {
+  accent-color: #60a5fa;
+  min-height: 1.8rem !important;
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone:not(.mobile-ui-screen-player) #v3-tuner-wrap #tuner-plugin-ui,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone:not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-menu] {
+    max-height: calc(100vh - 4.25rem) !important;
+    padding: 0.6rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone:not(.mobile-ui-screen-player) #v3-badge-instrument [data-pill],
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone:not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-reset] {
+    min-height: 1.85rem !important;
+  }
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-topbar {
+  grid-template-rows: auto auto auto !important;
+  row-gap: 0.42rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-search-wrap {
+  grid-column: 1 / -1 !important;
+  grid-row: 3 !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin: 0.08rem 0 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-search {
+  width: 100% !important;
+  max-width: none !important;
+  box-sizing: border-box !important;
+  min-height: 2.35rem !important;
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs > .max-w-7xl {
+  padding-left: 1rem !important;
+  padding-right: 2.25rem !important;
+  padding-bottom: 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar {
+  margin-left: -1rem !important;
+  margin-right: -2.25rem !important;
+  margin-bottom: 0.75rem !important;
+  padding: 0.45rem 2.25rem 0.55rem 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar > div {
+  gap: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar > div > div:first-child {
+  gap: 0.45rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar > div > div:last-child {
+  gap: 0.45rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-count {
+  font-size: 0.8rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-match-review {
+  font-size: 0.68rem !important;
+  padding: 0.15rem 0.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-artist,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-album,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-sort,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-format {
+  flex: 1 1 calc(50% - 0.35rem) !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 2.25rem !important;
+  padding: 0.42rem 0.6rem !important;
+  font-size: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-filters,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-select,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-refresh,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-refresh-meta,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-unmatched,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-upload {
+  min-height: 2.25rem !important;
+  padding: 0.42rem 0.65rem !important;
+  font-size: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-offline {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 2.25rem !important;
+  max-width: 9.5rem !important;
+  padding: 0.42rem 0.7rem !important;
+  font-size: 0.78rem !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid-btn,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-tree-btn,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-albums-btn,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-folder-btn {
+  min-height: 2.25rem !important;
+  padding: 0.42rem 0.65rem !important;
+  font-size: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-lib-home {
+  margin-bottom: 0.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-rep-meter {
+  max-width: 100%;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-shelf {
+  margin-top: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-row {
+  gap: 0.55rem !important;
+  padding-bottom: 4px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-card {
+  flex-basis: 7rem !important;
+  width: 7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-card .mt-1 {
+  font-size: 0.82rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-card .text-xs {
+  font-size: 0.68rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid {
+  gap: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid [data-fn] > .mt-1 {
+  font-size: 0.82rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid [data-v3-artist],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid [data-fn] > .text-xs {
+  font-size: 0.68rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-card-chips {
+  height: 1.25rem !important;
+  gap: 0.2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-card-chips > * {
+  font-size: 0.62rem !important;
+  padding-left: 0.3rem !important;
+  padding-right: 0.3rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-azrail {
+  right: 1px !important;
+  padding: 2px 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-azrail-letter {
+  font-size: 0.66rem !important;
+  line-height: 1 !important;
+  padding: 1px 4px !important;
+  border-radius: 3px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-azbubble {
+  right: 2rem !important;
+  width: 2.25rem !important;
+  height: 2.25rem !important;
+  font-size: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs > .max-w-7xl {
+  padding-left: 1.5rem !important;
+  padding-right: 2.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar {
+  margin-left: -1.5rem !important;
+  margin-right: -2.25rem !important;
+  margin-bottom: 1rem !important;
+  padding: 0.65rem 2.25rem 0.75rem 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar > div,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar > div > div:last-child {
+  gap: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar select,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar button {
+  min-height: 2.35rem;
+  font-size: 0.84rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-grid {
+  gap: 0.9rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet .v3-kp-card {
+  flex-basis: 8rem !important;
+  width: 8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet .v3-azrail {
+  right: 2px !important;
+  padding: 3px 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet .v3-azrail-letter {
+  font-size: 0.78rem !important;
+  padding: 1px 6px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet .v3-azbubble {
+  right: 2.25rem !important;
+  width: 2.4rem !important;
+  height: 2.4rem !important;
+}
+
+/* Song Library toolbar: Options/More controls and phone collapsed states. */
+
+html.mobile-ui-enabled.mobile-ui-v3 .mobile-ui-library-more-toggle {
+  display: none;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar:not(.mobile-ui-library-more-open) .mobile-ui-library-secondary-control {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #mobile-ui-library-more.mobile-ui-library-more-toggle {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem !important;
+  padding: 0.42rem 0.65rem !important;
+  border: 1px solid rgb(55, 65, 81);
+  border-radius: 0.375rem;
+  background: rgba(31, 41, 55, 0.5);
+  color: rgb(248, 250, 252);
+  font-size: 0.78rem !important;
+  line-height: 1.1;
+  outline: none;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #mobile-ui-library-more.mobile-ui-library-more-toggle:focus-visible {
+  border-color: rgb(14, 165, 233);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.75);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar.mobile-ui-library-toolbar > div > div:last-child {
+  align-items: stretch !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar .mobile-ui-library-primary-control:is(
+  #v3-songs-artist,
+  #v3-songs-album,
+  #v3-songs-sort,
+  #v3-songs-format
+) {
+  flex: 1 1 calc(50% - 0.35rem) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar .mobile-ui-library-primary-control#v3-songs-filters,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #mobile-ui-library-more.mobile-ui-library-more-toggle {
+  flex: 1 1 calc(50% - 0.35rem) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar.mobile-ui-library-more-open .mobile-ui-library-view-toggle-group {
+  display: flex !important;
+  flex: 1 1 100% !important;
+  max-width: max-content;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar.mobile-ui-library-more-open .mobile-ui-library-secondary-control:is(
+  #v3-songs-select,
+  #v3-songs-refresh,
+  #v3-songs-refresh-meta,
+  #v3-songs-unmatched,
+  #v3-songs-upload
+) {
+  flex: 1 1 calc(50% - 0.35rem) !important;
+}
+
+/* Song Library toolbar: phone summary row. */
+
+html.mobile-ui-enabled.mobile-ui-v3 .mobile-ui-library-refine-row {
+  display: none;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar .mobile-ui-library-refine-row {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar .mobile-ui-library-refine-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(203, 213, 225, 0.88);
+  font-size: 0.78rem;
+  line-height: 1.15;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar .mobile-ui-library-refine-toggle {
+  display: inline-flex !important;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem !important;
+  padding: 0.42rem 0.7rem !important;
+  border: 1px solid rgb(55, 65, 81);
+  border-radius: 0.375rem;
+  background: rgba(31, 41, 55, 0.5);
+  color: rgb(248, 250, 252);
+  font-size: 0.78rem !important;
+  line-height: 1.1;
+  outline: none;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar .mobile-ui-library-refine-toggle:focus-visible {
+  border-color: rgb(14, 165, 233);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.75);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar:not(.mobile-ui-library-refine-open) .mobile-ui-library-primary-control,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar:not(.mobile-ui-library-refine-open) .mobile-ui-library-secondary-control,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar:not(.mobile-ui-library-refine-open) .mobile-ui-library-view-toggle-group,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar:not(.mobile-ui-library-refine-open) #mobile-ui-library-more {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar.mobile-ui-library-refine-open:not(.mobile-ui-library-more-open) .mobile-ui-library-secondary-control {
+  display: none !important;
+}
+
+/* Song Library toolbar: tablet structure. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-refine-row,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #mobile-ui-library-more {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar > div {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar > div > div:first-child {
+  width: 100% !important;
+  justify-content: flex-start !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar > div > div:last-child {
+  width: 100% !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 0.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-primary-control:is(
+  #v3-songs-artist,
+  #v3-songs-album,
+  #v3-songs-sort,
+  #v3-songs-format
+) {
+  flex: 1 1 calc(25% - 0.5rem) !important;
+  min-width: 8.5rem !important;
+  max-width: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-view-toggle-group {
+  display: flex !important;
+  flex: 0 0 auto !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-primary-control#v3-songs-filters,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-secondary-control:is(
+  #v3-songs-select,
+  #v3-songs-refresh,
+  #v3-songs-refresh-meta,
+  #v3-songs-unmatched,
+  #v3-songs-upload
+) {
+  flex: 0 1 auto !important;
+  min-height: 2.35rem !important;
+  padding: 0.45rem 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar #v3-songs-offline {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 2.35rem !important;
+  max-width: 10.5rem !important;
+  padding: 0.45rem 0.8rem !important;
+  font-size: 0.84rem !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+}
+
+/* Song Library toolbar: tablet summary row and expanded states. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-refine-row {
+  display: flex !important;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-refine-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(203, 213, 225, 0.88);
+  font-size: 0.84rem;
+  line-height: 1.15;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-refine-toggle {
+  display: inline-flex !important;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.35rem !important;
+  padding: 0.45rem 0.8rem !important;
+  border: 1px solid rgb(55, 65, 81);
+  border-radius: 0.375rem;
+  background: rgba(31, 41, 55, 0.5);
+  color: rgb(248, 250, 252);
+  font-size: 0.84rem !important;
+  line-height: 1.1;
+  outline: none;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar .mobile-ui-library-refine-toggle:focus-visible {
+  border-color: rgb(14, 165, 233);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.75);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar:not(.mobile-ui-library-refine-open) .mobile-ui-library-primary-control,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar:not(.mobile-ui-library-refine-open) .mobile-ui-library-secondary-control,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar:not(.mobile-ui-library-refine-open) .mobile-ui-library-view-toggle-group,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar:not(.mobile-ui-library-refine-open) #mobile-ui-library-more {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open #mobile-ui-library-more {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open:not(.mobile-ui-library-more-open) .mobile-ui-library-secondary-control {
+  display: none !important;
+}
+
+/* Song Library toolbar: tablet expanded layout. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open {
+  padding-right: 2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open > div > div:last-child {
+  gap: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open #v3-songs-artist,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open #v3-songs-album,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open #v3-songs-sort {
+  flex: 1 1 calc(33.333% - 0.55rem) !important;
+  min-width: 10rem !important;
+  max-width: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open #v3-songs-format {
+  flex: 0 1 12rem !important;
+  min-width: 9rem !important;
+  max-width: 13rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open #v3-songs-filters,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-refine-open #mobile-ui-library-more {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.5rem !important;
+  min-height: 2.35rem !important;
+  padding: 0.45rem 0.8rem !important;
+  border: 1px solid rgb(55, 65, 81);
+  border-radius: 0.375rem;
+  background: rgba(31, 41, 55, 0.5);
+  color: rgb(248, 250, 252);
+  font-size: 0.84rem !important;
+  line-height: 1.1;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-more-open .mobile-ui-library-view-toggle-group {
+  display: flex !important;
+  flex: 0 0 auto !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar.mobile-ui-library-more-open .mobile-ui-library-secondary-control:is(
+  #v3-songs-select,
+  #v3-songs-refresh,
+  #v3-songs-refresh-meta,
+  #v3-songs-unmatched,
+  #v3-songs-upload
+) {
+  flex: 0 1 auto !important;
+  min-width: 5.5rem !important;
+  max-width: 10.5rem !important;
+}
+
+/* Song Library content: shelves, cards, chips, and A-Z rail. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-lib-home {
+  margin-top: 0.35rem !important;
+  margin-bottom: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-rep-meter {
+  margin-bottom: 0.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-rep-meter .text-sm {
+  font-size: 0.82rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-rep-meter .text-xs {
+  font-size: 0.68rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-rep-track {
+  height: 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-shelf {
+  margin-top: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-shelf h3 {
+  margin-bottom: 0.4rem !important;
+  font-size: 0.88rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-row {
+  gap: 0.5rem !important;
+  padding-bottom: 2px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-card {
+  flex-basis: 6.6rem !important;
+  width: 6.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-card .mt-1 {
+  margin-top: 0.2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-card .text-sm {
+  font-size: 0.76rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-kp-card .text-xs {
+  font-size: 0.68rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid {
+  gap: 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid [data-fn] > div:nth-of-type(2) {
+  font-size: 0.82rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid [data-v3-artist],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-grid [data-fn] > div.text-xs {
+  font-size: 0.68rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-card-chips {
+  height: 1.1rem !important;
+  min-height: 1.05rem !important;
+  max-height: 1.15rem !important;
+  gap: 0.2rem !important;
+  margin-top: 0.25rem !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-card-chips > * {
+  border-radius: 0.25rem !important;
+  font-size: 0.56rem !important;
+  line-height: 1 !important;
+  padding: 0.18rem 0.35rem !important;
+  opacity: 0.72;
+}
+
+/* Phone landscape Library density: shorter art and tighter card chrome leave
+   more rows visible above the bottom nav while keeping the A-Z rail usable. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape #v3-songs > .max-w-7xl {
+  padding-left: 0.65rem !important;
+  padding-right: 2rem !important;
+  padding-bottom: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape #v3-songs-grid {
+  gap: 0.45rem !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape #v3-songs-grid [data-fn] > div:first-child,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape #v3-songs-grid .v3-card-skel > div:first-child {
+  aspect-ratio: 16 / 9 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape #v3-songs-grid [data-fn] > div:nth-of-type(2) {
+  margin-top: 0.15rem !important;
+  font-size: 0.74rem !important;
+  line-height: 1.05 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape #v3-songs-grid [data-v3-artist],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape #v3-songs-grid [data-fn] > div.text-xs {
+  font-size: 0.62rem !important;
+  line-height: 1.05 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape .v3-card-chips {
+  height: 0.9rem !important;
+  min-height: 0.9rem !important;
+  max-height: 0.95rem !important;
+  gap: 0.15rem !important;
+  margin-top: 0.15rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone.mobile-ui-landscape .v3-card-chips > * {
+  font-size: 0.5rem !important;
+  padding: 0.12rem 0.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-azrail {
+  opacity: 0.72;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-azrail:hover,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-azrail:focus-within {
+  opacity: 1;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone .v3-azrail-letter {
+  font-size: 0.62rem !important;
+  padding-inline: 3px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs > .max-w-7xl {
+  padding-right: 2.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet .v3-azrail {
+  opacity: 0.78;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet .v3-azrail:hover,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet .v3-azrail:focus-within {
+  opacity: 1;
+}
+
+/* Song Library sticky behavior: the options bar scrolls with content while the global topbar stays sticky. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-phone #v3-songs-toolbar,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-library.mobile-ui-tablet #v3-songs-toolbar {
+  position: static !important;
+  top: auto !important;
+}
+
+/* 5. Home
+   Compact the mobile/tablet hero and follow-on dashboard content without changing desktop. */
+
+/* Home hero and primary dashboard grid. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-home > .max-w-7xl {
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+  padding-bottom: 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero {
+  min-height: 300px !important;
+  border-radius: 0.9rem !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero > img {
+  width: 72% !important;
+  opacity: 0.72 !important;
+  object-position: right center !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero > div.absolute.inset-0 {
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.18)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero > div.relative {
+  max-width: 18rem !important;
+  padding: 1.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero h3 {
+  font-size: 1.85rem !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.03em !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero p {
+  margin-top: 0.65rem !important;
+  font-size: 0.9rem !important;
+  line-height: 1.35 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero .flex {
+  flex-wrap: wrap !important;
+  gap: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-start,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-lessons-btn {
+  min-height: 2.5rem !important;
+  padding: 0.55rem 0.9rem !important;
+  border-radius: 0.65rem !important;
+  font-size: 0.9rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-home > .max-w-7xl > p.text-sm.text-fb-textDim:has(a[href*="/CHANGELOG.md"]) {
+  font-size: 0.75rem !important;
+  line-height: 1.25 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-home > .max-w-7xl > p.text-sm.text-fb-textDim:has(a[href*="/CHANGELOG.md"]) + .grid {
+  margin-top: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-home > .max-w-7xl > .grid {
+  gap: 1rem !important;
+  margin-top: 1rem !important;
+}
+
+/* 5.1  Home touch topbar layout.
+   Touch Home uses two explicit rows:
+   row 1 = welcome/title left + Support Us right;
+   row 2 = status cards grouped left. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-topbar {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto !important;
+  align-items: center !important;
+  gap: 0.35rem 0.6rem !important;
+  padding: 0.45rem 0.55rem 0.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-topbar > .flex:first-child,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-topbar > .flex:last-child {
+  display: contents !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-hamburger,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-search-wrap {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-topbar-title {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  width: auto !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-topbar a[href*="patreon"] {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  align-self: center !important;
+  margin-left: 0 !important;
+  white-space: nowrap !important;
+  font-size: 0.66rem !important;
+  line-height: 1 !important;
+  padding: 0.28rem 0.5rem !important;
+  gap: 0.25rem !important;
+  border-radius: 0.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-topbar a[href*="patreon"] svg {
+  width: 0.75rem !important;
+  height: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) .mobile-ui-topbar-status-rail {
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  justify-content: flex-start !important;
+  align-items: stretch !important;
+  overflow: visible !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-topbar-stats {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: stretch !important;
+  gap: 0.25rem !important;
+  min-width: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-button {
+  appearance: none !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 3.35rem !important;
+  height: 2.85rem !important;
+  min-height: 2.85rem !important;
+  max-height: 2.85rem !important;
+  padding: 0.28rem 0.32rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.16) !important;
+  border-radius: 0.75rem !important;
+  background: rgba(15, 23, 42, 0.74) !important;
+  color: #e5edf8 !important;
+  font: inherit !important;
+  text-align: center !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 24px rgba(0, 0, 0, 0.18) !important;
+  cursor: pointer !important;
+  overflow: hidden !important;
+  touch-action: manipulation !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-button[aria-disabled="true"] {
+  cursor: default !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-button:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.88) !important;
+  outline-offset: 2px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-button:not([aria-disabled="true"]):active {
+  transform: translateY(1px) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) .mobile-ui-home-stat-button {
+  height: 2.6rem !important;
+  min-height: 2.6rem !important;
+  max-height: 2.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet:not(.mobile-ui-screen-player) .mobile-ui-home-stat-button {
+  width: 3.5rem !important;
+  height: 3rem !important;
+  min-height: 3rem !important;
+  max-height: 3rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-button[data-mobile-ui-home-stat="songs"] .mobile-ui-home-stat-unit {
+  color: #fbbf24 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-button[data-mobile-ui-home-stat="active"] .mobile-ui-home-stat-unit {
+  color: #34d399 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-value {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.92rem !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-home-stat-unit {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  margin-top: 0.16rem !important;
+  font-size: 0.53rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-home .mobile-ui-home-stat-source-hidden {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-badge-tuner [data-open-tuner],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-badge-instrument [data-inst-toggle],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-badge-profile [data-v3-open-profile] {
+  box-sizing: border-box !important;
+  height: 2.85rem !important;
+  min-height: 2.85rem !important;
+  max-height: 2.85rem !important;
+  align-items: center !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-tuner [data-open-tuner],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-instrument [data-inst-toggle],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] {
+  height: 3rem !important;
+  min-height: 3rem !important;
+  max-height: 3rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home:is(.mobile-ui-phone, .mobile-ui-tablet) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) {
+  display: none !important;
+}
+
+/* 5.2  Phone landscape Home / chrome compaction.
+   Landscape has limited vertical height — compact the Home content without
+   changing Library/search topbar behavior. */
+
+/* Home hero: reduce vertical footprint. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-hero {
+  min-height: 200px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-hero > div.relative {
+  padding: 0.75rem 1rem !important;
+  max-width: 22rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-hero h3 {
+  font-size: 1.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-hero p {
+  margin-top: 0.3rem !important;
+  font-size: 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-start,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-lessons-btn {
+  min-height: 2rem !important;
+  padding: 0.35rem 0.65rem !important;
+  font-size: 0.75rem !important;
+}
+
+/* Home stats row: tighter in landscape. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home .grid.md\:grid-cols-3 {
+  gap: 0.6rem !important;
+  margin-top: 0.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home .grid.md\:grid-cols-3 > div {
+  padding: 0.5rem 0.65rem !important;
+}
+
+/* Home section spacing: tighter. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home section.mt-10 {
+  margin-top: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home section.mt-10 h3 {
+  font-size: 1.1rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+/* Home content wrapper: reduce padding. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home > .max-w-7xl {
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+}
+
+/* 5.3  Tablet Home / status compaction.
+   Tablet has more room than phone, but the default badge cluster and
+   heading are oversized on Home. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-topbar-title {
+  font-size: 1.875rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-topbar a[href*="patreon"] {
+  font-size: 0.7rem !important;
+  padding: 0.3rem 0.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-tuner [data-open-tuner] {
+  width: 3.5rem !important;
+  height: 3rem !important;
+  padding: 0.3rem 0.4rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-tuner [data-tuner-note] {
+  font-size: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-instrument [data-inst-toggle] {
+  width: 2.8rem !important;
+  height: 3rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] {
+  min-height: 3rem !important;
+  padding: 0.3rem 0.45rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-profile [data-v3-avatar-tile] {
+  width: 1.8rem !important;
+  height: 1.8rem !important;
+}
+
+/* Profile badge equalizer bars: shrink so the card doesn't force extra
+   height beyond the other two badges. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div {
+  max-height: 0.75rem !important;
+}
+
+/* Profile badge text: tighten. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] .text-base {
+  font-size: 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] .text-xl {
+  font-size: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-badge-profile [data-v3-open-profile] svg.w-5 {
+  width: 0.9rem !important;
+  height: 0.9rem !important;
+}
+
+/* 5.4  Phone landscape badge / status card normalization.
+   Match the tablet compaction for phone landscape — shrink the tuner,
+   instrument, and profile badges to consistent heights and trim the
+   profile equalizer bars. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-tuner [data-open-tuner] {
+  width: 3.2rem !important;
+  height: 2.6rem !important;
+  padding: 0.25rem 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-tuner [data-tuner-note] {
+  font-size: 0.9rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-instrument [data-inst-toggle] {
+  width: 2.5rem !important;
+  height: 2.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-profile [data-v3-open-profile] {
+  height: 2.6rem !important;
+  min-height: 2.6rem !important;
+  max-height: 2.6rem !important;
+  padding: 0.25rem 0.35rem !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-profile [data-v3-avatar-tile] {
+  width: 1.5rem !important;
+  height: 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div {
+  max-height: 0.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-profile [data-v3-open-profile] .text-base {
+  font-size: 0.62rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-profile [data-v3-open-profile] .text-xl {
+  font-size: 0.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-badge-profile [data-v3-open-profile] svg.w-5 {
+  width: 0.75rem !important;
+  height: 0.75rem !important;
+}
+
+/* Shared touch topbar status-card contract.
+   Keep tuner, instrument, and profile cards equal-height on every non-Player
+   touch screen while preserving the profile mini graph in compact form. */
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) .mobile-ui-topbar-status-rail {
+  align-items: stretch !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-tuner [data-open-tuner],
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-toggle],
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] {
+  box-sizing: border-box !important;
+  align-items: center !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone:not(.mobile-ui-screen-player) #v3-badge-tuner [data-open-tuner],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone:not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-toggle],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone:not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] {
+  height: 2.85rem !important;
+  min-height: 2.85rem !important;
+  max-height: 2.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) #v3-badge-tuner [data-open-tuner],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-toggle],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] {
+  height: 2.6rem !important;
+  min-height: 2.6rem !important;
+  max-height: 2.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet:not(.mobile-ui-screen-player) #v3-badge-tuner [data-open-tuner],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet:not(.mobile-ui-screen-player) #v3-badge-instrument [data-inst-toggle],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet:not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] {
+  height: 3rem !important;
+  min-height: 3rem !important;
+  max-height: 3rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] {
+  max-width: min(8rem, 44vw) !important;
+  gap: 0.3rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:first-child {
+  gap: 0.18rem !important;
+  margin-bottom: 0.1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:first-child span {
+  font-size: 0.68rem !important;
+  white-space: nowrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) {
+  align-items: flex-end !important;
+  gap: 0.3rem !important;
+  min-width: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:first-child span:last-child {
+  display: inline !important;
+  font-size: 0.86rem !important;
+  line-height: 1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) {
+  display: flex !important;
+  align-items: flex-end !important;
+  gap: 1px !important;
+  max-height: 0.78rem !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3:is(.mobile-ui-phone, .mobile-ui-tablet):not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div {
+  display: block !important;
+  width: 2px !important;
+  min-width: 2px !important;
+  max-width: 2px !important;
+  max-height: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:first-child span {
+  font-size: 0.62rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:first-child span:last-child {
+  font-size: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) {
+  max-height: 0.62rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone.mobile-ui-landscape:not(.mobile-ui-screen-player) #v3-badge-profile [data-v3-open-profile] > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div {
+  max-height: 0.62rem !important;
+}
+/* Home stat cards: tighter on tablet. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-home .grid.md\:grid-cols-3 > div {
+  padding: 0.6rem 0.75rem !important;
+}
+
+/* Home section spacing: reduce gap before song cards. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-home section.mt-10 {
+  margin-top: 1.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-home section.mt-10 h3 {
+  font-size: 1.3rem !important;
+  margin-bottom: 0.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-hero {
+  min-height: 380px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-hero > div.relative {
+  padding: 1.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-hero h3 {
+  font-size: 2.4rem !important;
+  line-height: 1.05 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-home > .max-w-7xl > .grid {
+  gap: 1.25rem !important;
+  margin-top: 1.25rem !important;
+}
+
+/* Home continue/pick card sizing. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero {
+  min-height: 250px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero > div.relative {
+  max-width: 17rem !important;
+  padding: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero h3 {
+  font-size: 1.65rem !important;
+  line-height: 1.05 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-hero p {
+  font-size: 0.84rem !important;
+  line-height: 1.3 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-start,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-lessons-btn {
+  min-height: 2.35rem !important;
+  padding: 0.5rem 0.8rem !important;
+  font-size: 0.84rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-continue,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-pick {
+  max-height: 260px !important;
+  aspect-ratio: 16 / 10 !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone #v3-continue-pick {
+  max-height: 260px !important;
+  overflow: hidden !important;
+}
+
+/* Phone landscape Home density: keep the accepted topbar, but make content
+   cards shorter so more of the dashboard sits above the bottom nav. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home > .max-w-7xl > .grid.lg\:grid-cols-3 {
+  grid-template-columns: minmax(0, 1.25fr) minmax(11rem, 0.85fr) !important;
+  gap: 0.65rem !important;
+  align-items: stretch !important;
+  margin-top: 0.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-hero {
+  grid-column: auto !important;
+  min-height: 165px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home > .max-w-7xl > .grid.lg\:grid-cols-3 > :not(#v3-hero) {
+  align-self: stretch !important;
+  min-width: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-continue,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-pick {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 170px !important;
+  aspect-ratio: 16 / 7 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-continue > div.relative,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-pick > div.relative {
+  padding: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-continue .text-sm,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-pick .text-sm {
+  font-size: 0.68rem !important;
+  line-height: 1.05 !important;
+  margin-bottom: 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home section.mt-10 {
+  margin-top: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home section.mt-10 h3 {
+  font-size: 0.98rem !important;
+  margin-bottom: 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home section.mt-10 > .grid {
+  gap: 0.5rem !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home button[data-recent] > div:first-child {
+  aspect-ratio: 16 / 9 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home button[data-recent] > .mt-1 {
+  margin-top: 0.15rem !important;
+  font-size: 0.72rem !important;
+  line-height: 1.05 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-phone.mobile-ui-landscape #v3-home button[data-recent] > .text-xs {
+  font-size: 0.62rem !important;
+  line-height: 1.05 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-hero {
+  min-height: 330px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-continue,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-pick,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-continue-pick {
+  max-height: 360px !important;
+  overflow: hidden !important;
+}
+
+/* Home tablet follow-on content. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-home > .max-w-7xl > .grid {
+  gap: 1rem !important;
+  margin-top: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-continue,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-pick {
+  justify-self: start !important;
+  width: min(100%, 28rem) !important;
+  max-height: 300px !important;
+  aspect-ratio: 16 / 9 !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-continue-pick {
+  max-height: 300px !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-home section.mt-10 {
+  margin-top: 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-home section.mt-10 h3 {
+  font-size: 1.35rem !important;
+  line-height: 1.1 !important;
+}
+
+/* Home tablet continue width. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-continue,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-pick {
+  justify-self: stretch !important;
+  width: 100% !important;
+  max-width: none !important;
+  max-height: 320px !important;
+  aspect-ratio: 16 / 9 !important;
+  overflow: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-home.mobile-ui-tablet #v3-continue-pick {
+  max-height: 320px !important;
+  overflow: hidden !important;
+}
+
+/* 5.3 Career
+   Keep the Venues tab inside the phone viewport without touching bottom-nav scrolling. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #v3-main {
+  overflow-x: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #plugin-career,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #plugin-career > .max-w-5xl,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-progress-wrap,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-venues,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-star-list {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #plugin-career > .max-w-5xl {
+  width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .career-venues > *,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .career-star-row,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .career-star-row > *,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .flex {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .career-star-row {
+  align-items: flex-start !important;
+  gap: 0.45rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .career-star-row .song {
+  flex: 1 1 auto !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .career-star-row .hint {
+  flex: 0 1 auto !important;
+  text-align: right !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues .career-btn {
+  max-width: 100% !important;
+  white-space: normal !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues [data-career-play],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues [data-career-unselect],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-career.mobile-ui-phone #career-tab-venues [data-career-delete] {
+  flex: 0 1 auto !important;
+}
+
+/* 6. Progress
+   Compact phone progress cards and let tablet progress content use more width. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl {
+  padding: 1rem 1rem 1.5rem !important;
+  gap: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl > div {
+  margin-top: 0.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl > div:first-child {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  align-items: center !important;
+  margin-top: 0 !important;
+  gap: 0.75rem !important;
+  padding: 0.8rem 0.9rem !important;
+  text-align: left !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl > div:first-child > div {
+  min-width: 0;
+  text-align: left !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl > div:first-child .text-6xl {
+  font-size: 2.75rem !important;
+  line-height: 0.95 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl > div:first-child .text-3xl {
+  font-size: 1.45rem !important;
+  line-height: 1.05 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl > div:first-child .text-xs {
+  font-size: 0.66rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress > .max-w-5xl > div:first-child [data-prog-shop] {
+  margin-top: 0.35rem !important;
+  font-size: 0.72rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress .bg-fb-card\/80.backdrop-blur.rounded-xl {
+  padding: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress .divide-y.divide-fb-border\/30 > div {
+  padding-top: 0.45rem !important;
+  padding-bottom: 0.45rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-phone #v3-progress h3 {
+  font-size: 1rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-tablet #v3-progress > .max-w-5xl {
+  max-width: 72rem !important;
+  padding: 1.5rem 1.75rem 2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-tablet #v3-progress > .max-w-5xl > div:first-child {
+  gap: 1.5rem !important;
+  padding: 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-tablet #v3-progress .grid.md\:grid-cols-2 {
+  gap: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-progress.mobile-ui-tablet #v3-progress > .max-w-5xl > .grid.md\:grid-cols-2:not(:last-child) {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+/* 7. Settings
+   Compact the legacy settings screen inside the v3 shell on phone/tablet. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-settings {
+  padding: 0.8rem 1rem 2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-settings-back,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-settings-title,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-tablet #settings .fb-settings-back,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-tablet #settings .fb-settings-title {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-settings-title {
+  font-size: 1.55rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings-tabbar {
+  flex-wrap: wrap !important;
+  gap: 0.35rem 0.45rem !important;
+  margin: 0.85rem 0 1rem !important;
+  overflow-x: visible !important;
+  padding-bottom: 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings-tabbar .fb-tab {
+  flex: 0 1 auto !important;
+  min-height: 2rem !important;
+  padding: 0.38rem 0.55rem !important;
+  font-size: 0.78rem !important;
+  white-space: nowrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-tabpanel-head {
+  gap: 0.65rem !important;
+  margin-bottom: 0.75rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-tabpanel-head h3 {
+  font-size: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srows {
+  gap: 0.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-stack {
+  padding: 0.75rem !important;
+  border-radius: 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-control {
+  width: 100% !important;
+  min-width: 0 !important;
+  flex-wrap: wrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-control select,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-control input[type="text"] {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #v3-main {
+  overflow-x: hidden !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-tabpanel.active[data-tab="system"],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srows,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-stack,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-wide {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-stack:has(#enrich-enabled) .grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-stack:has(#enrich-enabled) label,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-stack:has(#enrich-enabled) .fb-srow-wide > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  white-space: normal !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-stack:has(#enrich-enabled) select,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-phone #settings .fb-srow-stack:has(#enrich-enabled) input[type="text"] {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-tablet #settings .fb-settings {
+  max-width: 64rem !important;
+  padding: 1.5rem 1.5rem 3rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-tablet #settings-tabbar {
+  gap: 0.35rem !important;
+  margin: 1rem 0 1.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-settings.mobile-ui-tablet #settings .fb-srow-control {
+  min-width: 0 !important;
+  flex-wrap: wrap !important;
+}
+
+/* 8. Plugins
+   Present the phone pedalboard as a compact category list while tablet/desktop keep the core board. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedalboards-wrap {
+  padding: 0.75rem 1rem 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedalboards-wrap > div:first-child {
+  gap: 0.55rem !important;
+  margin-bottom: 0.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedalboards-wrap > div:first-child > span {
+  font-size: 0.9rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins #v3-pedal-reset,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins #v3-open-inspector {
+  min-height: 2.1rem !important;
+  padding: 0.35rem 0.6rem !important;
+  font-size: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-board-section {
+  margin-bottom: 0.85rem !important;
+  padding-top: 2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-board-title {
+  left: 0.6rem !important;
+  right: auto !important;
+  height: 1.9rem !important;
+  padding: 0 0.65rem !important;
+  border-radius: 0.55rem 0.55rem 0 0 !important;
+  font-size: 0.66rem !important;
+  letter-spacing: 0.06em !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-board-section.collapsed .v3-board-title {
+  border-radius: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-board-count {
+  padding: 0.04rem 0.38rem !important;
+  font-size: 0.58rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-cable-layer,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-cable {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedalboard {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.65rem !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0.7rem !important;
+  overflow: visible !important;
+  border-radius: 0.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 2.4rem !important;
+  align-items: center !important;
+  gap: 0.65rem !important;
+  width: 100% !important;
+  min-height: 4.25rem !important;
+  height: auto !important;
+  padding: 0.65rem !important;
+  border: 1px solid rgba(51, 65, 85, 0.55);
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(135deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.9)),
+    var(--skin);
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+  transform: none !important;
+  touch-action: manipulation !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal::before,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-glow {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-label {
+  position: relative !important;
+  inset: auto !important;
+  z-index: 2;
+  display: grid !important;
+  grid-template-columns: 2.7rem minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 0.6rem !important;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-align: left !important;
+  transform: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-thumb {
+  width: 2.7rem !important;
+  height: 2.7rem !important;
+  border-radius: 0.55rem !important;
+  object-fit: contain !important;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 0.25rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-name {
+  font-size: 0.9rem !important;
+  line-height: 1.15 !important;
+  white-space: normal !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-pill,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-err {
+  justify-self: start;
+  grid-column: 2;
+  font-size: 0.58rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-bundled,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-offbadge {
+  top: 0.35rem !important;
+  right: 3.2rem !important;
+  left: auto !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-foot {
+  position: relative !important;
+  left: auto !important;
+  bottom: auto !important;
+  z-index: 4;
+  justify-self: end;
+  width: 2.35rem !important;
+  height: 2.35rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.36) !important;
+  border-radius: 999px !important;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(34, 197, 94, 0.9) 0 28%, rgba(21, 128, 61, 0.85) 30% 48%, rgba(15, 23, 42, 0.9) 52% 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 12px rgba(34, 197, 94, 0.22);
+  transform: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-plugins.mobile-ui-phone #v3-plugins .v3-pedal-off .v3-pedal-foot {
+  background:
+    radial-gradient(circle at 50% 45%, rgba(248, 113, 113, 0.92) 0 28%, rgba(185, 28, 28, 0.82) 30% 48%, rgba(15, 23, 42, 0.9) 52% 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 12px rgba(248, 113, 113, 0.2);
+}
+
+/* 9. Collections
+   Compact Playlists/Favorites/Saved collection screens on phone/tablet only. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists > .max-w-5xl,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists > .max-w-3xl,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved > .max-w-3xl {
+  padding: 0.85rem 1rem 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists #v3-pl-new-album,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists #v3-pl-new,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists #v3-pl-shuffle,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists #v3-pl-playall,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists #v3-pl-rename,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists #v3-pl-delete {
+  min-height: 2.2rem !important;
+  padding: 0.42rem 0.65rem !important;
+  font-size: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists [data-pl] {
+  padding: 0.75rem !important;
+  border-radius: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists [data-pl] > div:first-child {
+  margin-bottom: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-playlists h2 {
+  font-size: 1.45rem !important;
+  line-height: 1.1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved-songs {
+  display: grid !important;
+  gap: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs li[data-fn],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved-songs li[data-fn] {
+  align-items: center !important;
+  gap: 0.65rem !important;
+  padding: 0.65rem !important;
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs li[data-fn] img,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved-songs li[data-fn] img {
+  width: 3rem !important;
+  height: 3rem !important;
+  border-radius: 0.55rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs li[data-fn] .font-medium,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved-songs li[data-fn] .font-medium {
+  font-size: 0.86rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs li[data-fn] .text-xs,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved-songs li[data-fn] .text-xs {
+  font-size: 0.68rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-saved.mobile-ui-phone #v3-saved-songs li[data-fn] > span.flex-1 > span:first-child {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-saved.mobile-ui-phone #v3-saved-songs li[data-fn] > span.flex-1 > span:first-child > span {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  max-width: 100% !important;
+  margin-left: 0.25rem !important;
+  padding: 0.12rem 0.32rem !important;
+  font-size: 0.58rem !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  vertical-align: 0.08em;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs [data-v3-play],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs [data-remove],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-pl-songs [data-slot],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved-songs [data-v3-play],
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #v3-saved-songs [data-remove] {
+  min-height: 2rem !important;
+  padding: 0.3rem 0.5rem !important;
+  font-size: 0.72rem !important;
+  opacity: 1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites > section {
+  padding: 0.85rem 1rem 1.5rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites h2 {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #fav-count {
+  margin-top: 0 !important;
+  font-size: 0.8rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .flex.items-center.justify-between {
+  align-items: flex-start !important;
+  gap: 0.7rem !important;
+  margin-bottom: 0.85rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .flex.gap-3.w-full {
+  gap: 0.45rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #fav-filter {
+  min-height: 2.25rem !important;
+  padding: 0.42rem 0.65rem !important;
+  font-size: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #fav-sort,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #fav-view-grid-btn,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #fav-view-tree-btn,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .fav-tree-ctrl {
+  min-height: 2.15rem !important;
+  padding: 0.38rem 0.58rem !important;
+  font-size: 0.76rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #fav-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-card {
+  border-radius: 0.8rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-card .card-art {
+  aspect-ratio: 16 / 11 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-card > .p-4 {
+  padding: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-card h3 {
+  font-size: 0.84rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-card p,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-card .text-xs {
+  font-size: 0.68rem !important;
+  line-height: 1.15 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .artist-header,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .album-header,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-row {
+  padding: 0.6rem 0.7rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #favorites .song-row {
+  border-radius: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-playlists > .max-w-3xl,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #v3-saved > .max-w-3xl {
+  max-width: 64rem !important;
+  padding: 1.25rem 1.5rem 2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #favorites > section {
+  padding: 1.25rem 1.5rem 2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #favorites h2 {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #favorites .flex.items-center.justify-between {
+  gap: 1rem !important;
+  margin-bottom: 1rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #fav-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 0.9rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #favorites .song-card .card-art {
+  aspect-ratio: 16 / 10 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #favorites .song-card > .p-4 {
+  padding: 0.8rem !important;
+}
+
+/* 10. Lessons / FeedBarcade / Unlockables
+   These screens are mapped for diagnostics/root classes, but currently have no visual overrides here. */
+
+/* 11. Player shared cleanup
+   Touch player controls, speed cleanup, and mobile/tablet panels.
+   Highway/canvas/camera sizing is intentionally left to core/plugins. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #highway,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #highway {
+  touch-action: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone, .mobile-ui-tablet) .mobile-ui-highway-camera-reset {
+  position: fixed;
+  z-index: 58;
+  top: calc(max(0.75rem, env(safe-area-inset-top)) + 3rem);
+  right: max(0.75rem, env(safe-area-inset-right));
+  min-height: 2.35rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #f8fafc;
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.32);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone, .mobile-ui-tablet) .mobile-ui-highway-camera-reset:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.95);
+  outline-offset: 3px;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait .mobile-ui-highway-camera-reset {
+  top: calc(max(0.75rem, env(safe-area-inset-top)) + 6.5rem);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #player-controls .v3-speed-bars,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #player-controls .v3-chevrons,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #player-controls #speed-presets {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #player-controls .v3-speed-bars,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #player-controls .v3-chevrons,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #player-controls #speed-presets {
+  display: none !important;
+}
+
+/* Optional integration: hide the global tour affordance on touch layouts.
+   It overlaps Mobile UI's floating phone menu pill and touch Player controls. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone .feedBack-tour-menu-btn,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone #feedBack-tour-menu-popover,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone .feedBack-tour-menu-popover,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-phone .feedBack-tour-prompt {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet .feedBack-tour-menu-btn,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet #feedBack-tour-menu-popover,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet .feedBack-tour-menu-popover,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-tablet .feedBack-tour-prompt {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #player-controls .v3-speed-cluster {
+  max-width: none !important;
+  flex: 0 1 auto !important;
+  flex-wrap: nowrap !important;
+  gap: 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #player-controls .v3-speed {
+  gap: 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #player-controls .v3-speed-slider {
+  width: clamp(5.5rem, 28vw, 7rem) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone #player-controls .v3-speed-label {
+  min-width: 2.7rem !important;
+  font-size: 0.78rem !important;
+  text-align: right !important;
+}
+
+/* 12. Player phone portrait More shelf
+   More shelf mode is phone portrait only; tablet uses direct chips instead. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.35rem !important;
+  flex-wrap: nowrap !important;
+  overflow: visible !important;
+  padding: 0.6rem 0.75rem max(0.75rem, env(safe-area-inset-bottom)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-speed-cluster {
+  order: 2 !important;
+  flex: 0 1 auto !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+  width: clamp(4.2rem, 20vw, 5.8rem) !important;
+  min-width: 4.2rem !important;
+  max-width: 5.8rem !important;
+  height: 2.6rem !important;
+  min-height: 2.6rem !important;
+  padding: 0 0.55rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  border-radius: 999px !important;
+  background: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(8px) !important;
+  align-items: center !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-speed-cluster::after {
+  content: attr(data-mobile-speed-value);
+  position: absolute !important;
+  left: 50% !important;
+  top: -1.5rem !important;
+  transform: translateX(-50%) !important;
+  font-size: 0.68rem !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  color: #67e8f9 !important;
+  background: rgba(15, 23, 42, 0.8) !important;
+  padding: 0.15rem 0.45rem !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(103, 232, 249, 0.25) !important;
+  pointer-events: none !important;
+  white-space: nowrap !important;
+  opacity: 0 !important;
+  transition: opacity 120ms ease-out !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-speed-cluster.mobile-ui-speed-peek::after {
+  opacity: 1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-speed-slider {
+  box-sizing: border-box !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls #speed-label,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-speed-label {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-speed {
+  align-items: center !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-transport-mid {
+  order: 1 !important;
+  flex: 0 0 auto !important;
+  gap: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #player-controls .v3-transport-mid > button[aria-label="Restart song"] {
+  display: none !important;
+}
+
+.mobile-ui-player-library-button {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait.mobile-ui-player-more-shelf-mode .mobile-ui-player-library-button {
+  order: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 2.6rem !important;
+  height: 2.6rem !important;
+  padding: 0 !important;
+  color: #cbd5e1 !important;
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 999px !important;
+  cursor: pointer !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  flex: 0 0 auto !important;
+  margin-inline-end: auto !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-library-button {
+  order: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 2.6rem !important;
+  height: 2.6rem !important;
+  min-width: 2.6rem !important;
+  min-height: 2.6rem !important;
+  max-width: 2.6rem !important;
+  max-height: 2.6rem !important;
+  padding: 0 !important;
+  color: #cbd5e1 !important;
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 999px !important;
+  cursor: pointer !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  flex: 0 0 auto !important;
+  margin-inline-end: 0.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet.mobile-ui-landscape.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-library-button {
+  margin-inline-end: 0.35rem !important;
+}
+
+/* Mobile Controls button + category picker — inline in bottom row */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-trigger {
+  position: relative !important;
+  order: 3 !important;
+  flex: 0 0 auto !important;
+  z-index: 35;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-trigger [hidden] {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  flex: 0 0 auto;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-picker {
+  position: fixed !important;
+  left: 0.5rem !important;
+  right: 0.5rem !important;
+  bottom: calc(3.6rem + env(safe-area-inset-bottom)) !important;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.65rem;
+  background: rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 1rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  max-width: none;
+  z-index: 36;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-option {
+  padding: 0.45rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #94a3b8;
+  background: rgba(30, 41, 59, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.65rem;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-option:active {
+  color: #67e8f9;
+  border-color: rgba(103, 232, 249, 0.45);
+  background: rgba(30, 41, 59, 0.9);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-option.is-active {
+  color: #e0faff;
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.5);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-option.is-selected {
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-quick-settings {
+  color: #e2e8f0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-arrangement,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-difficulty {
+  min-width: 0;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-quick-settings-label {
+  color: #94a3b8;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-arrangement-select {
+  min-width: 0;
+  height: 1.8rem;
+  padding: 0 1.65rem 0 0.65rem;
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1;
+  background-color: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 0.6rem;
+  outline: none;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-arrangement-select:focus-visible,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-difficulty-slider:focus-visible {
+  outline: 2px solid rgba(103, 232, 249, 0.75);
+  outline-offset: 2px;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-difficulty-slider {
+  min-width: 0;
+  height: 1.35rem;
+  accent-color: #60a5fa;
+  cursor: pointer;
+  touch-action: pan-x;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player .mobile-ui-player-difficulty-value {
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-picker .mobile-ui-player-quick-settings {
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.4rem;
+  padding: 0 0.1rem 0.55rem;
+  margin-bottom: 0.05rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-picker .mobile-ui-player-arrangement,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-picker .mobile-ui-player-difficulty {
+  display: grid;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-picker .mobile-ui-player-arrangement {
+  grid-template-columns: 5.2rem minmax(0, 1fr);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-picker .mobile-ui-player-difficulty {
+  grid-template-columns: 5.2rem minmax(5rem, 1fr) 2.8rem;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode .mobile-ui-player-controls-picker .mobile-ui-player-arrangement-select {
+  width: 100%;
+}
+
+/* Old rail is hidden visually in More shelf mode, but kept in DOM for core .click() targets. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-player-rail {
+  opacity: 1 !important;
+  transform: none !important;
+  pointer-events: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-player-rail > .v3-rail-icon,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-player-rail > .v3-rail-dot {
+  display: none !important;
+}
+
+/* Practice is special: it is not a normal .v3-rail-pop panel. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-player-rail > #section-practice-control {
+  display: block !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-player-rail > #section-practice-control.section-practice-control--hidden,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-player-rail > #section-practice-control > #section-practice-pill {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-player-rail > #section-practice-control #section-practice-bar {
+  position: fixed !important;
+  left: max(0.5rem, env(safe-area-inset-left)) !important;
+  right: max(0.5rem, env(safe-area-inset-right)) !important;
+  bottom: calc(9.0rem + env(safe-area-inset-bottom)) !important;
+  top: auto !important;
+  transform: none !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: min(42vh, 18rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  border-radius: 1rem 1rem 0.75rem 0.75rem !important;
+  background: rgba(15, 23, 42, 0.42) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  z-index: 60 !important;
+  pointer-events: auto !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-railzone::before {
+  pointer-events: none !important;
+}
+
+/* Optional integration: Section Map plugin is absent-safe. Offsets match the taller phone map. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #section-map {
+  height: 34px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #section-map .sm-block span {
+  display: none !important;
+  font-size: 0.68rem !important;
+  line-height: 34px !important;
+  padding: 0 0.35rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #section-map #sm-marker {
+  width: 3px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #section-map ~ #player-hud {
+  padding-top: calc(34px + 0.75rem) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #section-map ~ #v3-railzone::before {
+  top: 34px !important;
+}
+
+/* Tablet Section Map gets a little more touch height; portrait hides cramped labels. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #section-map {
+  height: 30px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #section-map #sm-marker {
+  width: 3px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #section-map ~ #player-hud {
+  padding-top: calc(30px + 0.65rem) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #section-map ~ #v3-railzone::before {
+  top: 30px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet.mobile-ui-portrait #section-map .sm-block span {
+  display: none !important;
+  line-height: 30px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet.mobile-ui-landscape #section-map .sm-block span {
+  display: inline-block !important;
+  line-height: 30px !important;
+}
+/* 13. Player panels / Practice
+   Rail popovers → bottom sheets (More shelf mode).
+   Popovers are siblings of #v3-player-rail inside #v3-railzone.
+   #v3-railzone is only ~100px wide (content-sized flex container), so
+   position:absolute popovers are confined to that narrow box.
+   Switching to position:fixed makes the viewport the containing block,
+   so left/right/bottom span the full screen width. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-more-shelf-mode #v3-railzone .v3-rail-pop {
+  position: fixed !important;
+  left: max(0.5rem, env(safe-area-inset-left)) !important;
+  right: max(0.5rem, env(safe-area-inset-right)) !important;
+  bottom: calc(9.0rem + env(safe-area-inset-bottom)) !important;
+  top: auto !important;
+  transform: none !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: min(42vh, 18rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  border-radius: 1rem 1rem 0.75rem 0.75rem !important;
+  background: rgba(15, 23, 42, 0.42) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  z-index: 60 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-advanced > .v3-pop-row:has(#arr-select),
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-advanced > .v3-pop-row:has(#mastery-slider),
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-advanced > .v3-pop-close[onclick*="requestExitSong"] {
+  display: none !important;
+}
+
+/* Stem Mixer owns a body-level fixed #stem-mixer-panel. Keep that panel in the
+   same safe Player region as Mobile UI action panels, and hide only the core
+   Plugins popover shell while Stem Mixer is visibly open. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #v3-rail-pop-plugins {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel {
+  color: #e2e8f0 !important;
+  background: rgba(15, 23, 42, 0.42) !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(18px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.15) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > [data-pane-header] {
+  color: #e2e8f0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > [data-pane-header] > span {
+  color: #f8fafc !important;
+  letter-spacing: 0.01em !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > [data-pane-header] button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 2rem !important;
+  min-height: 2rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  border-radius: 0.65rem !important;
+  background: rgba(30, 41, 59, 0.55) !important;
+  color: #cbd5e1 !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > [data-pane-header] button:hover,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > [data-pane-header] button:active {
+  color: #e0faff !important;
+  border-color: rgba(103, 232, 249, 0.42) !important;
+  background: rgba(34, 211, 238, 0.16) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > [data-pane-header] button:focus-visible {
+  outline: 2px solid rgba(103, 232, 249, 0.72) !important;
+  outline-offset: 2px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > label {
+  color: #cbd5e1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > label > span:first-child {
+  color: #cbd5e1 !important;
+  font-weight: 600 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel > label > span:last-child {
+  color: rgba(226, 232, 240, 0.72) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent !important;
+  accent-color: #67e8f9 !important;
+  cursor: pointer;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel input[type="range"]::-webkit-slider-runnable-track {
+  height: 0.42rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel input[type="range"]::-webkit-slider-thumb {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: -0.39rem;
+  border-radius: 999px;
+  background: #60a5fa;
+  border: 2px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel input[type="range"]::-moz-range-track {
+  height: 0.42rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel input[type="range"]::-moz-range-progress {
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #60a5fa;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel input[type="range"]::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #60a5fa;
+  border: 2px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-panel input[type="range"]:focus-visible {
+  outline: 2px solid rgba(103, 232, 249, 0.72) !important;
+  outline-offset: 0.25rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet).mobile-ui-stem-mixer-open #stem-mixer-hint {
+  color: rgba(203, 213, 225, 0.68) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #stem-mixer-panel {
+  position: fixed !important;
+  left: max(0.5rem, env(safe-area-inset-left)) !important;
+  right: max(0.5rem, env(safe-area-inset-right)) !important;
+  top: auto !important;
+  bottom: calc(9rem + env(safe-area-inset-bottom)) !important;
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: none !important;
+  box-sizing: border-box !important;
+  max-height: calc(100dvh - 10.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  padding: 0.65rem !important;
+  border-radius: 1rem 1rem 0.75rem 0.75rem !important;
+  z-index: 220 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #stem-mixer-panel > [data-pane-header] {
+  gap: 0.45rem !important;
+  margin-bottom: 0.55rem !important;
+  font-size: 0.78rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #stem-mixer-panel > [data-pane-header] button {
+  min-width: 2rem !important;
+  min-height: 2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #stem-mixer-panel > label {
+  grid-template-columns: 3.25rem minmax(0, 1fr) 2.4rem !important;
+  gap: 0.5rem !important;
+  min-height: 1.95rem !important;
+  margin: 0.12rem 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #stem-mixer-panel > label input[type="range"] {
+  min-height: 1.45rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-portrait #stem-mixer-hint {
+  margin-top: 0.45rem !important;
+  font-size: 0.62rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #stem-mixer-panel {
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: calc(4.2rem + env(safe-area-inset-bottom)) !important;
+  width: min(32.5rem, calc(100vw - 2rem)) !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: translateX(-50%) !important;
+  box-sizing: border-box !important;
+  max-height: min(48vh, 22rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  z-index: 220 !important;
+}
+
+/* Core Mixer: the nested #mixer-popover is desktop-positioned as an absolute
+   flyout below the "Mixer" button. Inside Mobile UI's bottom-sheet rail popover
+   that absolute flyout clips to a tiny strip, so touch layouts make it part of
+   the panel flow and turn each vertical fader into a horizontal row. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer {
+  overscroll-behavior: contain;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-control,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-anchor {
+  position: static !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #btn-mixer {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-height: 2rem !important;
+  justify-content: center !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover:not(.hidden) {
+  position: static !important;
+  inset: auto !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0.55rem 0 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  box-sizing: border-box !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-row {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 0.55rem !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  flex-wrap: nowrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip {
+  display: grid !important;
+  grid-template-columns: minmax(3.6rem, 0.72fr) minmax(0, 1.6fr) minmax(2.8rem, 0.58fr) !important;
+  align-items: center !important;
+  gap: 0.55rem !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  flex: 0 0 auto !important;
+  box-sizing: border-box !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-label {
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  text-align: left !important;
+  color: #cbd5e1 !important;
+  font-size: 0.72rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-value {
+  min-width: 0 !important;
+  margin-top: 0 !important;
+  color: rgba(226, 232, 240, 0.72) !important;
+  font-size: 0.68rem !important;
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-fader {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 1.6rem !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+  transform-origin: center !important;
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  background: transparent !important;
+  cursor: pointer;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-fader::-webkit-slider-runnable-track {
+  height: 0.45rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  border-radius: 999px !important;
+  background: linear-gradient(to right, #60a5fa var(--range-pct, 0%), rgba(15, 23, 42, 0.72) var(--range-pct, 0%)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-fader::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  width: 1.1rem !important;
+  height: 1.1rem !important;
+  margin-top: -0.4rem !important;
+  opacity: 1 !important;
+  border: 2px solid rgba(226, 232, 240, 0.85) !important;
+  border-radius: 999px !important;
+  background: #60a5fa !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-fader::-moz-range-track {
+  height: 0.45rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  border-radius: 999px !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-fader::-moz-range-progress {
+  height: 0.45rem !important;
+  border-radius: 999px !important;
+  background: #60a5fa !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-fader::-moz-range-thumb {
+  width: 1rem !important;
+  height: 1rem !important;
+  opacity: 1 !important;
+  border: 2px solid rgba(226, 232, 240, 0.85) !important;
+  border-radius: 999px !important;
+  background: #60a5fa !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player:is(.mobile-ui-phone,.mobile-ui-tablet) #v3-rail-pop-mixer #mixer-popover .mixer-strip-fader:focus-visible {
+  outline: 2px solid rgba(103, 232, 249, 0.72) !important;
+  outline-offset: 0.2rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-tablet #v3-rail-pop-mixer #mixer-popover .mixer-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: start !important;
+}
+
+/* 14. Player tablet direct controls
+   Tablet intentionally uses always-visible chips, not the phone More shelf. */
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.5rem !important;
+  flex-wrap: nowrap !important;
+  overflow: visible !important;
+  padding: 0.6rem 1rem max(0.75rem, env(safe-area-inset-bottom)) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-speed-cluster {
+  order: 2 !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+  width: clamp(9rem, 20vw, 14rem) !important;
+  min-width: 9rem !important;
+  max-width: 14rem !important;
+  padding: 0.35rem 0.55rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  border-radius: 999px !important;
+  background: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-speed-cluster::after {
+  content: attr(data-mobile-speed-value);
+  position: absolute !important;
+  left: 50% !important;
+  top: -1.5rem !important;
+  transform: translateX(-50%) !important;
+  font-size: 0.68rem !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  color: #67e8f9 !important;
+  background: rgba(15, 23, 42, 0.8) !important;
+  padding: 0.15rem 0.45rem !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(103, 232, 249, 0.25) !important;
+  pointer-events: none !important;
+  white-space: nowrap !important;
+  opacity: 0 !important;
+  transition: opacity 120ms ease-out !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-speed-cluster.mobile-ui-speed-peek::after {
+  opacity: 1 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-speed,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-speed-slider {
+  min-width: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-speed-slider {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls #speed-label,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-speed-label {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-transport-mid {
+  order: 1 !important;
+  flex: 0 0 auto !important;
+  gap: 0.65rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #player-controls .v3-transport-mid > button[aria-label="Restart song"] {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls {
+  order: 3 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.4rem !important;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap !important;
+  mask-image: linear-gradient(90deg, transparent 0, #000 1.15rem, #000 calc(100% - 1.6rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 1.15rem, #000 calc(100% - 1.6rem), transparent 100%);
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls::-webkit-scrollbar {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls.mobile-ui-player-speed-scroll-strip {
+  display: block !important;
+  line-height: 0 !important;
+  height: 2.6rem !important;
+  min-height: 2.6rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls.mobile-ui-player-speed-scroll-strip > .v3-speed-cluster,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls.mobile-ui-player-speed-scroll-strip > .mobile-ui-player-quick-settings,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls.mobile-ui-player-speed-scroll-strip > [data-mobile-ui-player-action] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-inline-end: 0.4rem !important;
+  margin-block: 0 !important;
+  align-self: center !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  height: 2.6rem !important;
+  min-height: 2.6rem !important;
+  box-sizing: border-box !important;
+  touch-action: pan-x !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .v3-speed-cluster.mobile-ui-player-speed-in-scroll {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  inline-size: auto !important;
+  min-width: 0 !important;
+  min-inline-size: 0 !important;
+  max-width: none !important;
+  max-inline-size: none !important;
+  min-height: 2.6rem !important;
+  gap: 0.3rem !important;
+  padding: 0 0.42rem !important;
+  vertical-align: middle !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .v3-speed-cluster.mobile-ui-player-speed-in-scroll .v3-speed {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  inline-size: auto !important;
+  min-width: 0 !important;
+  min-inline-size: 0 !important;
+  max-width: none !important;
+  max-inline-size: none !important;
+  gap: 0.3rem !important;
+  align-items: center !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .v3-speed-cluster.mobile-ui-player-speed-in-scroll #speed-slider,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .v3-speed-cluster.mobile-ui-player-speed-in-scroll .v3-speed-slider {
+  flex: 0 0 clamp(78px, 13vw, 100px) !important;
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
+  flex-basis: clamp(78px, 13vw, 100px) !important;
+  width: clamp(78px, 13vw, 100px) !important;
+  inline-size: clamp(78px, 13vw, 100px) !important;
+  min-width: 78px !important;
+  min-inline-size: 78px !important;
+  max-width: 100px !important;
+  max-inline-size: 100px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .v3-speed-cluster.mobile-ui-player-speed-in-scroll #speed-label,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .v3-speed-cluster.mobile-ui-player-speed-in-scroll .v3-speed-label {
+  flex: 0 0 auto !important;
+  display: inline-block !important;
+  min-width: 1.55rem !important;
+  width: auto !important;
+  white-space: nowrap !important;
+  color: #cbd5e1 !important;
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  text-align: right !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .v3-speed-cluster.mobile-ui-player-speed-in-scroll + .mobile-ui-player-quick-settings {
+  margin-inline-start: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .mobile-ui-player-quick-settings {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.45rem !important;
+  flex: 0 0 auto !important;
+  min-height: 2.6rem !important;
+  height: 2.6rem !important;
+  margin-inline-start: 1.1rem !important;
+  padding: 0 0.42rem !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  border-radius: 999px !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .mobile-ui-player-arrangement,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .mobile-ui-player-difficulty {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.3rem !important;
+  flex: 0 0 auto !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .mobile-ui-player-quick-settings-label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .mobile-ui-player-arrangement-select {
+  width: clamp(88px, 15vw, 110px) !important;
+  min-width: 88px !important;
+  max-width: 110px !important;
+  height: 1.35rem !important;
+  padding-left: 0.5rem !important;
+  padding-right: 1.35rem !important;
+  border-radius: 999px !important;
+  font-size: 0.64rem !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .mobile-ui-player-difficulty-slider {
+  width: clamp(78px, 13vw, 100px) !important;
+  min-width: 78px !important;
+  max-width: 100px !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-controls .mobile-ui-player-difficulty-value {
+  min-width: 1.9rem !important;
+  font-size: 0.64rem !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-chip {
+  flex: 0 0 auto !important;
+  min-height: 2.6rem !important;
+  height: 2.6rem !important;
+  padding: 0 0.7rem !important;
+  font-size: 0.74rem !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  color: #94a3b8 !important;
+  background: rgba(30, 41, 59, 0.65) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  border-radius: 999px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: pan-x;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-chip:active {
+  color: #67e8f9 !important;
+  border-color: rgba(103, 232, 249, 0.45) !important;
+  background: rgba(30, 41, 59, 0.9) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-chip.is-active {
+  color: #e0faff !important;
+  background: rgba(34, 211, 238, 0.18) !important;
+  border-color: rgba(34, 211, 238, 0.5) !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode .mobile-ui-player-tablet-chip.is-selected {
+  color: #e2e8f0 !important;
+  background: rgba(148, 163, 184, 0.2) !important;
+  border-color: rgba(148, 163, 184, 0.5) !important;
+}
+
+/* Old rail is hidden visually in tablet direct mode, but kept for core action targets. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-player-rail {
+  opacity: 1 !important;
+  transform: none !important;
+  pointer-events: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-player-rail > .v3-rail-icon,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-player-rail > .v3-rail-dot {
+  display: none !important;
+}
+
+/* Practice shares tablet panel placement but still uses its own core/plugin DOM. */
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-player-rail > #section-practice-control {
+  display: block !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-player-rail > #section-practice-control.section-practice-control--hidden,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-player-rail > #section-practice-control > #section-practice-pill {
+  display: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-railzone::before {
+  pointer-events: none !important;
+}
+
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-player-rail > #section-practice-control #section-practice-bar,
+html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-player-tablet-direct-controls-mode #v3-railzone .v3-rail-pop {
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: calc(4.2rem + env(safe-area-inset-bottom)) !important;
+  top: auto !important;
+  transform: translateX(-50%) !important;
+  width: min(30rem, calc(100vw - 2rem)) !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: min(48vh, 22rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  border-radius: 1rem 1rem 0.75rem 0.75rem !important;
+  background: rgba(15, 23, 42, 0.42) !important;
+  backdrop-filter: blur(18px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.15) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35) !important;
+  z-index: 60 !important;
+  pointer-events: auto !important;
+}
+
+/* 15. Player phone low-height landscape
+   Separate from tablet direct controls: compact row, scrollable chips, and landscape panel placement. */
+
+@media (orientation: landscape) and (max-height: 520px) {
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls {
+    gap: 0.45rem !important;
+    flex-wrap: nowrap !important;
+    overflow: visible !important;
+    padding: 0.55rem 0.75rem max(0.55rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-speed-bars,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-chevrons,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls #speed-presets {
+    display: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .feedBack-tour-menu-btn,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #feedBack-tour-menu-popover,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .feedBack-tour-menu-popover,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .feedBack-tour-prompt {
+    display: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-speed-cluster {
+    order: 2 !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+    max-width: none !important;
+    flex: 0 1 auto !important;
+    flex-wrap: nowrap !important;
+    gap: 0.35rem !important;
+    padding: 0.35rem 0.55rem !important;
+    border: 1px solid rgba(148, 163, 184, 0.22) !important;
+    border-radius: 999px !important;
+    background: rgba(15, 23, 42, 0.45) !important;
+    backdrop-filter: blur(8px) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-speed-cluster::after {
+    content: attr(data-mobile-speed-value);
+    position: absolute !important;
+    left: 50% !important;
+    top: -1.5rem !important;
+    transform: translateX(-50%) !important;
+    font-size: 0.68rem !important;
+    font-weight: 500 !important;
+    line-height: 1 !important;
+    color: #67e8f9 !important;
+    background: rgba(15, 23, 42, 0.8) !important;
+    padding: 0.15rem 0.45rem !important;
+    border-radius: 999px !important;
+    border: 1px solid rgba(103, 232, 249, 0.25) !important;
+    pointer-events: none !important;
+    white-space: nowrap !important;
+    opacity: 0 !important;
+    transition: opacity 120ms ease-out !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-speed-cluster.mobile-ui-speed-peek::after {
+    opacity: 1 !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-speed {
+    gap: 0.35rem !important;
+    align-items: center !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-speed-slider {
+    box-sizing: border-box !important;
+    width: clamp(7rem, 24vw, 9rem) !important;
+    max-width: 100% !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls #speed-label,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-speed-label {
+    display: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-transport-mid {
+    order: 1 !important;
+    gap: 0.65rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #player-controls .v3-transport-mid > button[aria-label="Restart song"] {
+    display: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-library-button {
+    order: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 2.6rem !important;
+    height: 2.6rem !important;
+    padding: 0 !important;
+    color: #cbd5e1 !important;
+    background: rgba(15, 23, 42, 0.75) !important;
+    border: 1px solid rgba(148, 163, 184, 0.28) !important;
+    border-radius: 999px !important;
+    cursor: pointer !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    flex: 0 0 auto !important;
+    margin-inline-end: 0.85rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls {
+    order: 3 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: min(46vw, 28rem) !important;
+    overflow: hidden !important;
+    position: relative !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-controls {
+    flex: 1 1 0 !important;
+    max-width: clamp(14rem, calc(100vw - 20rem), 24rem) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls::after {
+    content: "";
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 1.4rem !important;
+    pointer-events: none !important;
+    background: linear-gradient(90deg, rgba(15, 23, 42, 0), rgba(15, 23, 42, 0.72)) !important;
+    border-radius: 999px !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls [hidden] {
+    display: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip-row {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    overscroll-behavior-inline: contain !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    white-space: nowrap !important;
+    padding-inline: 0.2rem !important;
+    mask-image: linear-gradient(90deg, transparent 0, #000 1.15rem, #000 calc(100% - 1.6rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 1.15rem, #000 calc(100% - 1.6rem), transparent 100%);
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row {
+    min-height: 2.6rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip-row::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip {
+    display: block !important;
+    line-height: 0 !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip {
+    height: 2.6rem !important;
+    min-height: 2.6rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip > .v3-speed-cluster,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip > .mobile-ui-player-quick-settings,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip > [data-mobile-ui-player-action] {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-inline-end: 0.35rem !important;
+    margin-block: 0 !important;
+    align-self: center !important;
+    line-height: 1 !important;
+    vertical-align: middle !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip > .v3-speed-cluster,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip > .mobile-ui-player-quick-settings,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row.mobile-ui-player-speed-scroll-strip > [data-mobile-ui-player-action] {
+    height: 2.6rem !important;
+    min-height: 2.6rem !important;
+    box-sizing: border-box !important;
+    touch-action: pan-x !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row .v3-speed-cluster.mobile-ui-player-speed-in-scroll {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    inline-size: auto !important;
+    min-width: 0 !important;
+    min-inline-size: 0 !important;
+    max-width: none !important;
+    max-inline-size: none !important;
+    min-height: 2.6rem !important;
+    gap: 0.3rem !important;
+    padding: 0 0.42rem !important;
+    vertical-align: middle !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row .v3-speed-cluster.mobile-ui-player-speed-in-scroll .v3-speed {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    inline-size: auto !important;
+    min-width: 0 !important;
+    min-inline-size: 0 !important;
+    max-width: none !important;
+    max-inline-size: none !important;
+    gap: 0.3rem !important;
+    align-items: center !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row .v3-speed-cluster.mobile-ui-player-speed-in-scroll #speed-slider,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row .v3-speed-cluster.mobile-ui-player-speed-in-scroll .v3-speed-slider {
+    flex: 0 0 clamp(72px, 13vw, 96px) !important;
+    flex-grow: 0 !important;
+    flex-shrink: 0 !important;
+    flex-basis: clamp(72px, 13vw, 96px) !important;
+    width: clamp(72px, 13vw, 96px) !important;
+    inline-size: clamp(72px, 13vw, 96px) !important;
+    min-width: 72px !important;
+    min-inline-size: 72px !important;
+    max-width: 96px !important;
+    max-inline-size: 96px !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row .v3-speed-cluster.mobile-ui-player-speed-in-scroll #speed-label,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip-row .v3-speed-cluster.mobile-ui-player-speed-in-scroll .v3-speed-label {
+    flex: 0 0 auto !important;
+    display: inline-block !important;
+    min-width: 1.55rem !important;
+    width: auto !important;
+    white-space: nowrap !important;
+    color: #cbd5e1 !important;
+    font-size: 0.64rem !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    text-align: right !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-quick-settings {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    flex: 0 0 auto !important;
+    min-height: 1.75rem !important;
+    padding: 0 0.42rem !important;
+    background: rgba(15, 23, 42, 0.58) !important;
+    border: 1px solid rgba(148, 163, 184, 0.18) !important;
+    border-radius: 999px !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-quick-settings {
+    min-height: 2.6rem !important;
+    height: 2.6rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-arrangement,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-difficulty {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.3rem !important;
+    flex: 0 0 auto !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-quick-settings-label {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-arrangement-select {
+    width: clamp(88px, 15vw, 110px) !important;
+    min-width: 88px !important;
+    max-width: 110px !important;
+    height: 1.35rem !important;
+    padding-left: 0.5rem !important;
+    padding-right: 1.35rem !important;
+    border-radius: 999px !important;
+    font-size: 0.64rem !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-difficulty-slider {
+    width: clamp(72px, 13vw, 96px) !important;
+    min-width: 72px !important;
+    max-width: 96px !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-controls .mobile-ui-player-difficulty-value {
+    min-width: 1.9rem !important;
+    font-size: 0.64rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip {
+    flex: 0 0 auto !important;
+    min-height: 1.75rem !important;
+    padding: 0 0.6rem !important;
+    font-size: 0.68rem !important;
+    font-weight: 500 !important;
+    line-height: 1 !important;
+    color: #94a3b8 !important;
+    background: rgba(30, 41, 59, 0.65) !important;
+    border: 1px solid rgba(148, 163, 184, 0.18) !important;
+    border-radius: 999px !important;
+    cursor: pointer !important;
+    white-space: nowrap !important;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape .mobile-ui-player-landscape-chip {
+    height: 2.6rem !important;
+    min-height: 2.6rem !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    touch-action: pan-x !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip:active {
+    color: #67e8f9 !important;
+    border-color: rgba(103, 232, 249, 0.45) !important;
+    background: rgba(30, 41, 59, 0.9) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip.is-active {
+    color: #e0faff !important;
+    background: rgba(34, 211, 238, 0.18) !important;
+    border-color: rgba(34, 211, 238, 0.5) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape .mobile-ui-player-landscape-chip.is-selected {
+    color: #e2e8f0 !important;
+    background: rgba(148, 163, 184, 0.2) !important;
+    border-color: rgba(148, 163, 184, 0.5) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-player-rail {
+    opacity: 1 !important;
+    transform: none !important;
+    pointer-events: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-player-rail > .v3-rail-icon,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-player-rail > .v3-rail-dot {
+    display: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-player-rail > #section-practice-control {
+    display: block !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    pointer-events: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-player-rail > #section-practice-control.section-practice-control--hidden,
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-player-rail > #section-practice-control > #section-practice-pill {
+    display: none !important;
+  }
+
+  /* Practice is not a .v3-rail-pop, but in phone landscape it should follow
+     the same compact action-panel sizing instead of reverting to a full-width
+     bottom sheet. */
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-player-rail > #section-practice-control #section-practice-bar {
+    position: fixed !important;
+    left: auto !important;
+    right: max(0.75rem, env(safe-area-inset-right)) !important;
+    bottom: calc(3.7rem + env(safe-area-inset-bottom)) !important;
+    top: auto !important;
+    transform: none !important;
+    width: min(22rem, calc(100vw - 1.5rem)) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    max-height: min(50vh, 16rem) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+    border-radius: 1rem 1rem 0.75rem 0.75rem !important;
+    background: rgba(15, 23, 42, 0.42) !important;
+    backdrop-filter: blur(18px) !important;
+    -webkit-backdrop-filter: blur(18px) !important;
+    border: 1px solid rgba(148, 163, 184, 0.24) !important;
+    z-index: 60 !important;
+    pointer-events: auto !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-railzone::before {
+    pointer-events: none !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #v3-railzone .v3-rail-pop {
+    position: fixed !important;
+    left: auto !important;
+    right: max(0.75rem, env(safe-area-inset-right)) !important;
+    bottom: calc(3.5rem + max(0.5rem, env(safe-area-inset-bottom))) !important;
+    top: auto !important;
+    transform: none !important;
+    width: min(22rem, calc(100vw - 1.5rem)) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 5.375rem) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+    border-radius: 1rem 1rem 0.75rem 0.75rem !important;
+    background: rgba(15, 23, 42, 0.42) !important;
+    backdrop-filter: blur(18px) saturate(1.15) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(1.15) !important;
+    border-color: rgba(148, 163, 184, 0.24) !important;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35) !important;
+    z-index: 60 !important;
+    pointer-events: auto !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape #stem-mixer-panel {
+    position: fixed !important;
+    left: max(0.5rem, env(safe-area-inset-left)) !important;
+    right: max(0.5rem, env(safe-area-inset-right)) !important;
+    top: auto !important;
+    bottom: calc(3.5rem + max(0.5rem, env(safe-area-inset-bottom))) !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    transform: none !important;
+    box-sizing: border-box !important;
+    max-height: calc(100dvh - 5.375rem) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain;
+    padding: 0.65rem !important;
+    z-index: 220 !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape #stem-mixer-panel > [data-pane-header] {
+    margin-bottom: 0.45rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-phone.mobile-ui-landscape #stem-mixer-panel > label {
+    grid-template-columns: 3rem minmax(0, 1fr) 2.35rem !important;
+    gap: 0.45rem !important;
+    min-height: 1.75rem !important;
+    margin: 0.08rem 0 !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #section-map {
+    height: 28px !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #section-map .sm-block span {
+    display: none !important;
+    font-size: 0.62rem !important;
+    line-height: 28px !important;
+    padding: 0 0.3rem !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #section-map #sm-marker {
+    width: 3px !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #section-map ~ #player-hud {
+    padding-top: calc(28px + 0.5rem) !important;
+  }
+
+  html.mobile-ui-enabled.mobile-ui-v3.mobile-ui-screen-player.mobile-ui-landscape #section-map ~ #v3-railzone::before {
+    top: 28px !important;
+  }
+}
