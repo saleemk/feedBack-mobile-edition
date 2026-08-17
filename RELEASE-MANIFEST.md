@@ -36,6 +36,9 @@ unchanged.
 - Core JavaScript tests passed: `61/61`.
 - Core Python tests passed: `23/23`.
 - Practice-package and highway snapshot regressions passed: `19/19`.
+- Clean exported-index image build and startup passed.
+- Bundled Mobile UI, Section Map, service worker, and diagnostic practice
+  package manifest were verified in the isolated stack.
 - Manual mobile and offline playback checks passed for the tested scenarios.
 
 ## Release Notes

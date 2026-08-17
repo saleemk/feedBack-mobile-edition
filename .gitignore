@@ -7,6 +7,7 @@ build/
 *.egg-info/
 *.log
 .env*
+!.env.example
 .DS_Store
 .vscode/
 data/web_library.db
