@@ -2,7 +2,7 @@
 
 Edition version: `0.1.0`
 Status: local release candidate
-Captured: 2026-08-17
+Captured: 2026-08-19
 
 This manifest pins the source inputs used by this checkout. It is intentionally
 separate from the core application's `VERSION` file.
@@ -11,7 +11,7 @@ separate from the core application's `VERSION` file.
 
 | Component | Repository | Branch | Commit |
 | --- | --- | --- | --- |
-| fee[dB]ack Core integration | This Edition repository, based on `https://github.com/got-feedBack/feedBack` | `mobile/main` source history | `151fc5f84472bc4cebe7164a32b972a24aca8c03` |
+| fee[dB]ack Core integration | This Edition repository, based on `https://github.com/got-feedBack/feedBack` | `mobile/main` source history | `d2a9a1b962a71793a93db7586e5748a8945d396f` |
 | Mobile UI | `https://github.com/saleemk/feedBack-plugin-mobile-ui` | `main` | `c0e24a387471cf7c9219830bef64123dc2454fa1` |
 | Section Map | `https://github.com/saleemk/feedBack-plugin-sectionmap` | `mobile/main` | `cd082b8a4d0a58de90b7aaf8389c2dc4f6eae4bb` |
 
@@ -36,10 +36,13 @@ unchanged.
 - Core JavaScript tests passed: `61/61`.
 - Core Python tests passed: `23/23`.
 - Practice-package and highway snapshot regressions passed: `19/19`.
+- Offline practice storage startup and retry tests passed: `12/12`.
 - Clean exported-index image build and startup passed.
 - Bundled Mobile UI, Section Map, service worker, and diagnostic practice
   package manifest were verified in the isolated stack.
 - Manual mobile and offline playback checks passed for the tested scenarios.
+- Normal iPhone Safari recovered from an initial storage failure and downloaded
+  an offline package; Private Browsing truthfully reported OPFS unavailable.
 
 ## Release Notes
 
