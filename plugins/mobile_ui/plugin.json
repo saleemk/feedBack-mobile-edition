@@ -14,6 +14,7 @@
       "screen.js",
       "settings.html",
       "assets/mobile_ui.css",
+      "assets/thumb.svg",
       "src/debug.js",
       "src/diagnostics.js",
       "src/dom.js",

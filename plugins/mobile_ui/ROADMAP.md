@@ -1,11 +1,12 @@
 # Mobile UI Roadmap
 
-This roadmap records the current direction of the fee[dB]ack mobile product
-line. The standalone Mobile UI plugin remains its touch adaptation layer, while
-an owned core branch provides PWA, distribution, and server-owned capabilities.
+This roadmap records the current direction of the standalone Mobile UI plugin.
 It is intentionally short and forward-looking. Released plugin capabilities and
 setup instructions belong in [README.md](README.md), and implementation rules
-belong in [AGENTS.md](AGENTS.md).
+belong in [AGENTS.md](AGENTS.md). Product distribution, PWA, and offline-practice
+work belongs to the separate
+[fee[dB]ack Mobile Edition](https://github.com/saleemk/feedBack-mobile-edition)
+project.
 
 ## Current Release
 
@@ -37,23 +38,18 @@ documents the temporary preview options and compatibility behavior.
 
 ## Current Focus
 
-### 1. Owned PWA Foundation
+### 1. Release Stability And Core Compatibility
 
-- Maintain `mobile/main` as the long-lived owned product base.
-- The offline launch foundation is complete and merged into `mobile/main`.
-- Make installation and updates understandable for average users.
-- Continue validating standalone launch and recovery on iPhone and Android.
-- Keep offline behavior explicit: the first slice provides launch and recovery,
-  not offline song practice.
+- Fix reproducible phone or tablet regressions as focused slices.
+- Watch for core navigation, Player, and plugin DOM changes that affect current
+  integrations.
+- Preserve lifecycle cleanup, safe fallback, and unchanged desktop behavior.
+- Avoid broad responsive or Player refactors while the current release is
+  stable.
+- Validate Mobile UI against official core updates before changing compatibility
+  assumptions.
 
-Planned offline expansion proceeds in deliberate phases:
-
-1. Browser-local tools that can operate without the server.
-2. Explicitly downloaded full-mix practice bundles with visible storage
-   controls.
-3. Queued progress synchronization with defined reconnect and conflict rules.
-
-### 2. Upstream Integration
+### 2. Camera Bridge Integration
 
 - Track the camera bridge work in
   [fee[dB]ack PR #1043](https://github.com/got-feedBack/feedBack/pull/1043).
@@ -63,31 +59,8 @@ Planned offline expansion proceeds in deliberate phases:
 - Retest Mobile UI against the official core implementation after each merge.
 - Remove temporary preview guidance when official releases contain the required
   contracts.
-- Review useful upstream changes into `mobile/main`; upstream approval must not
-  block owned mobile releases.
-- Extract broadly useful work onto focused upstream branches when appropriate.
 
-### 3. Release Stability And Compatibility
-
-- Fix reproducible phone or tablet regressions as focused slices.
-- Watch for core navigation, Player, and plugin DOM changes that affect current
-  integrations.
-- Preserve lifecycle cleanup, safe fallback, and unchanged desktop behavior.
-- Avoid broad responsive or Player refactors while the current release is
-  stable.
-
-### 4. Section Map Direct Manipulation
-
-Touch and mouse drag seeking is implemented in the standalone
-[Section Map plugin](https://github.com/got-feedBack/feedBack-plugin-sectionmap)
-and submitted upstream in
-[PR #11](https://github.com/got-feedBack/feedBack-plugin-sectionmap/pull/11).
-Mobile UI should change only if real integration testing reveals a responsive
-or gesture conflict.
-
-## Planned Mobile UI Work
-
-### User-Adjustable Camera Profiles
+### 3. User-Adjustable Camera Profiles
 
 The initial investigation confirmed that the documented camera bridge can
 support user-adjustable mobile perspective and vertical composition without
@@ -104,7 +77,7 @@ remain limited to:
 Final ranges and settings presentation require focused device testing before
 implementation.
 
-### Performance And Device Testing
+### 4. Performance And Device Testing
 
 - Investigate Player and gesture latency on older iPads.
 - Complete iPhone note-detection and audio-routing tests with the iRig HD X.
@@ -113,18 +86,24 @@ implementation.
 These are investigation areas, not promises of plugin-side fixes. Findings may
 belong in core or another plugin.
 
-## Adjacent Work
+### 5. Optional Plugin Compatibility
 
-These efforts relate to Mobile UI but belong in their own repositories:
+- Continue validating body-level plugin panels and Player action surfaces on
+  supported touch layouts.
+- Keep Section Map integration compatible with the standalone plugin and its
+  [drag-seeking PR](https://github.com/got-feedBack/feedBack-plugin-sectionmap/pull/11).
+- Change Mobile UI only when real integration testing reveals a responsive,
+  lifecycle, or gesture conflict.
 
+## Separate Projects
+
+These efforts relate to Mobile UI but are planned and versioned independently:
+
+- PWA distribution, offline practice, and owned core integration in
+  [fee[dB]ack Mobile Edition](https://github.com/saleemk/feedBack-mobile-edition).
 - An optional desktop Highway camera-controls plugin using mouse drag and
   wheel or trackpad zoom.
 - Core profile persistence and stronger protection of player statistics.
-- Native iOS and Android clients are not on the active roadmap; the installable
-  PWA is the chosen mobile client direction.
-
-Each should be planned and versioned independently rather than expanding Mobile
-UI's ownership.
 
 ## Deferred Decisions
 
