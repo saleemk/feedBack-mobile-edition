@@ -43,6 +43,8 @@ unchanged.
 - Manual mobile and offline playback checks passed for the tested scenarios.
 - Normal iPhone Safari recovered from an initial storage failure and downloaded
   an offline package; Private Browsing truthfully reported OPFS unavailable.
+- The clean Edition candidate passed final online startup, offline download,
+  server-unavailable recovery, and offline playback testing.
 
 ## Release Notes
 

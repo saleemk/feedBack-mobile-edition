@@ -1,8 +1,8 @@
 # Mobile Edition Release Process
 
 This document defines the durable process for producing a fee[dB]ack Mobile
-Edition release. The current `0.1.0` state is a local release candidate. No
-public source archive, setup bundle, or Edition image is implied until it has
+Edition release. The current `0.1.0` state is a public release candidate. No
+versioned source release, setup bundle, or Edition image is implied until it has
 been built, tested, and published.
 
 ## Release Inputs
