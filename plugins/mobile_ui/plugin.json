@@ -1,7 +1,7 @@
 {
   "id": "mobile_ui",
   "name": "Mobile UI",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Mobile-first layout and player UI improvements for FeedBack.",
   "icon": "assets/thumb.svg",
   "license": "MIT",

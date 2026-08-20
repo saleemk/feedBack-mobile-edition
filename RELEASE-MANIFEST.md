@@ -12,7 +12,7 @@ separate from the core application's `VERSION` file.
 | Component | Repository | Branch | Commit |
 | --- | --- | --- | --- |
 | fee[dB]ack Core integration | This Edition repository, based on `https://github.com/got-feedBack/feedBack` | `mobile/main` source history | `d2a9a1b962a71793a93db7586e5748a8945d396f` |
-| Mobile UI | `https://github.com/saleemk/feedBack-plugin-mobile-ui` | `main` | `c0e24a387471cf7c9219830bef64123dc2454fa1` |
+| Mobile UI | `https://github.com/saleemk/feedBack-plugin-mobile-ui` | `main` | `c1d0ddb471ff459484b21c537be453091bb03440` |
 | Section Map | `https://github.com/saleemk/feedBack-plugin-sectionmap` | `mobile/main` | `cd082b8a4d0a58de90b7aaf8389c2dc4f6eae4bb` |
 
 ## Packaging Inputs

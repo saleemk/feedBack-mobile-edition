@@ -10,24 +10,22 @@ project.
 
 ## Current Release
 
-### v0.4.0 - Touch Camera Controls and Mobile Polish
+### v0.5.0 - Offline Library Integration and Touch Refinement
 
-Released `v0.4.0` adds bridge-based 3D Highway camera controls to the existing
-phone and tablet experience:
+Released `v0.5.0` adds host-integrated Library affordances and focused touch
+and settings refinements:
 
-- pinch zoom and two-finger pan
-- Reset view
-- separate saved views for phone and tablet portrait and landscape
-- improved camera baselines for each supported device and orientation
-- camera-support diagnostics and safe fallback when the required core bridge
-  is unavailable
+- Offline Library toolbar and stored-song chip integration when Mobile UI is
+  used with fee[dB]ack Mobile Edition
+- complete declaration of Mobile UI runtime assets for offline use by a
+  compatible host
+- Reset all saved 3D camera views from plugin settings
+- larger phone bottom-navigation touch targets
+- refreshed plugin icon
 
-The release also includes accumulated topbar, Player, layout, gesture,
-lifecycle, and compatibility improvements. Desktop remains core-controlled.
-
-The camera controls depend on upstream fee[dB]ack changes that are not yet in
-the official core release. Mobile UI remains usable without them. The README
-documents the temporary preview options and compatibility behavior.
+fee[dB]ack Mobile Edition owns offline package storage, downloads, and
+playback. Mobile UI only adapts the host-provided controls and declares its
+runtime assets.
 
 ### Earlier Milestones
 
@@ -35,6 +33,8 @@ documents the temporary preview options and compatibility behavior.
   mobile browser support.
 - **v0.3.0:** dynamic navigation, Player quick controls, and plugin-panel
   compatibility.
+- **v0.4.0:** touch camera controls, saved orientation-specific views, and
+  mobile polish with safe fallback when the required Core bridge is unavailable.
 
 ## Current Focus
 
@@ -55,10 +55,7 @@ documents the temporary preview options and compatibility behavior.
   [fee[dB]ack PR #1043](https://github.com/got-feedBack/feedBack/pull/1043).
 - Track Venue backdrop fitting in
   [fee[dB]ack PR #1049](https://github.com/got-feedBack/feedBack/pull/1049).
-- Keep the public preview branch usable while those changes remain pending.
 - Retest Mobile UI against the official core implementation after each merge.
-- Remove temporary preview guidance when official releases contain the required
-  contracts.
 
 ### 3. User-Adjustable Camera Profiles
 

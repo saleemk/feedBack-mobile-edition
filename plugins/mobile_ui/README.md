@@ -14,10 +14,9 @@ improvements with honest limits.
 > awaiting upstream approval. Pinch zoom, two-finger pan, camera defaults,
 > and Reset view require [PR #1043](https://github.com/got-feedBack/feedBack/pull/1043).
 > Correct Venue backdrop fitting requires
-> [PR #1049](https://github.com/got-feedBack/feedBack/pull/1049). Until they
-> are merged, use one of the
-> [camera preview setup options](#3d-highway-camera-support) or continue
-> without the optional camera controls.
+> [PR #1049](https://github.com/got-feedBack/feedBack/pull/1049). See
+> [3D Highway Camera Support](#3d-highway-camera-support) for the recommended
+> integrated route or continue without the optional camera controls.
 
 ## What You Get
 
@@ -31,6 +30,8 @@ improvements with honest limits.
 - quick Speed, Arrangement, Difficulty, and Player action controls
 - tap-to-play, vertical scrub, and optional two-finger 3D camera controls
 - touch-friendly tuner, instrument, Practice, and plugin panels
+- offline Library controls when Mobile UI is used with fee[dB]ack Mobile
+  Edition
 - standalone iPhone and Android browser support
 - unchanged desktop behavior
 
@@ -155,126 +156,24 @@ instructions](#3d-highway-camera-support).
 > **Camera setup required:** If Mobile UI reports `Core update required`, your
 > installed fee[dB]ack core does not include the complete 3D Highway camera
 > bridge. Mobile UI continues to work, but camera gestures and **Reset view**
-> remain unavailable. Continue without the optional controls, use a preview
-> option below, or wait for upstream support.
+> remain unavailable. Continue without the optional controls, use the
+> integrated route below, or wait for upstream support.
 
-All non-camera Mobile UI features work with official fee[dB]ack core builds.
+Mobile UI's standard layout, navigation, Player, and touch adaptations work
+with official fee[dB]ack core builds.
 Pinch zoom, two-finger pan, saved camera views, and **Reset view** activate only
 when the complete 3D Highway camera bridge is available.
 
-The camera bridge is pending in
-[PR #1043](https://github.com/got-feedBack/feedBack/pull/1043), while Venue
-backdrop fitting is pending in
-[PR #1049](https://github.com/got-feedBack/feedBack/pull/1049).
+For the complete experience with compatible Core camera support and offline
+practice, use
+[fee[dB]ack Mobile Edition](https://github.com/saleemk/feedBack-mobile-edition).
+Mobile Edition is a separate community distribution based on fee[dB]ack Core;
+it is not an official fee[dB]ack release.
 
-Choose exactly one of the two preview methods below. Do not combine the preview
-source branch with the prebuilt-image recipe. Mobile UI remains a separate
-plugin in either method.
-
-### Option 1: Preview source branch
-
-For users who run fee[dB]ack from a Git checkout, the recommended preview is
-[`saleemk/feedBack:preview/mobile-ui-camera-support`](https://github.com/saleemk/feedBack/tree/preview/mobile-ui-camera-support).
-That core branch already contains both pending patches. Use its normal core
-`docker-compose.yml` and the same `docker compose up` or `docker compose down`
-commands used for the checkout. It does not use the Mobile UI preview-image
-recipe. Install or mount Mobile UI separately as you normally do.
-
-### Option 2: Prebuilt preview image
-
-<details>
-<summary>Show advanced Docker instructions</summary>
-
-For users who are not using the preview source branch, the advanced prebuilt
-image path uses
-[`docker-compose.camera-preview-image.yml`](docker-compose.camera-preview-image.yml).
-This image is available for x86-64 Docker hosts.
-
-1. Identify the existing Docker volume mounted at `/config` by the standard
-   fee[dB]ack container. For example, inspect the current container before
-   stopping it:
-
-   ```bash
-   docker inspect <current-feedback-container> --format '{{range .Mounts}}{{if eq .Destination "/config"}}{{.Name}}{{end}}{{end}}'
-   ```
-
-2. Set the required existing host song-library folder and the exact config
-   volume name reported above. The port is optional and defaults to `8000`:
-
-   ```bash
-   export FEEDBACK_LIBRARY_PATH="/absolute/host/path/to/song-library"
-   export FEEDBACK_CONFIG_VOLUME="existing-config-volume-name"
-   export FEEDBACK_CAMERA_PREVIEW_PORT="8000"
-   ```
-
-   In PowerShell, use `$env:FEEDBACK_LIBRARY_PATH = "..."` and the equivalent
-   assignments for the other variables.
-
-3. Stop the standard deployment using its original Compose file, project name,
-   and command. Do not run the standard and preview containers against the same
-   config volume at the same time.
-
-   ```bash
-   cd /path/to/feedback
-   docker compose stop web
-   ```
-
-4. From this Mobile UI checkout, start and verify the preview:
-
-   ```bash
-   cd /path/to/feedBack-plugin-mobile-ui
-   docker compose -p feedback-camera-preview -f docker-compose.camera-preview-image.yml up -d
-   docker compose -p feedback-camera-preview -f docker-compose.camera-preview-image.yml ps
-   ```
-
-   Open `http://127.0.0.1:8000` in a browser and confirm Home loads. Adjust the
-   verification port if configured differently. Existing Tailscale Serve
-   routing can continue to use the loopback-bound port. Open Mobile UI Settings
-   and confirm camera support reports **Ready**.
-
-5. Stop the preview without deleting volumes, then restore the standard
-   deployment with its original Compose command:
-
-   ```bash
-   docker compose -p feedback-camera-preview -f docker-compose.camera-preview-image.yml down
-   cd /path/to/feedback
-   docker compose up -d web
-   ```
-
-   Never use `down -v`. The config volume is external and must be preserved.
-
-Docker requires `FEEDBACK_LIBRARY_PATH` to be the existing song folder on the
-server host. fee[dB]ack sees that same folder as `/dlc` inside the container.
-The recipe sets `DLC_DIR=/dlc`, which temporarily takes precedence over the
-library path saved in fee[dB]ack Settings without changing the saved value.
-Mobile UI remains a separate plugin mounted read-only from this checkout.
-
-#### Preview image details
-
-The supplied Compose file uses the exact image tested for this release:
-
-```text
-ghcr.io/saleemk/feedback@sha256:8d5af80c308e7e1be4e4cc9f54b8dc04aac92f5c8ae09c540835975e4ebf991c
-```
-
-The same image is also published with this readable tag:
-
-```text
-ghcr.io/saleemk/feedback:0.3.0-alpha.1.mobile-camera-preview.1
-```
-
-The image contains no Mobile UI checkout, songs, profile data, credentials, or
-local paths.
-
-Use the supplied preview Compose file. Replacing only `image:` in fee[dB]ack's
-normal development Compose file will not work because that file mounts local
-core code over the image.
-
-The isolated image deployment passed startup, plugin discovery, existing data,
-Mobile UI bridge readiness, and physical-device camera, Reset view, and Venue
-checks.
-
-</details>
+For technical and upstream status, see the camera bridge in
+[fee[dB]ack PR #1043](https://github.com/got-feedBack/feedBack/pull/1043) and
+Venue backdrop fitting in
+[fee[dB]ack PR #1049](https://github.com/got-feedBack/feedBack/pull/1049).
 
 ## Phone and Tablet Setup
 
@@ -330,6 +229,8 @@ network. Tailscale Funnel is not required.
 - Desktop behavior is intentionally left to core.
 - Two-finger camera controls require the documented 3D Highway camera bridge
   and currently support explicit 3D Highway and Venue selection, not Auto.
+- Offline Library controls require fee[dB]ack Mobile Edition. Mobile Edition
+  owns package storage, downloads, and offline playback.
 - Venue uses a fixed background composition, so extreme camera adjustments can
   expose its background framing beyond the highway scene.
 - A tiny old menu/sidebar flash can still appear during refresh on some devices
