@@ -16,6 +16,10 @@ official upstream release.
 - `docs/RELEASE.md` defines the release and validation process.
 - `RELEASE-MANIFEST.md` records the exact source inputs for this candidate.
 
+The root `VERSION` and `CHANGELOG.md` belong to the pinned Core snapshot.
+Mobile Edition release identity and source pins are recorded in
+`RELEASE-MANIFEST.md`.
+
 ## Quick Start
 
 Requirements:
