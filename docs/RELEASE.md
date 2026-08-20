@@ -1,9 +1,9 @@
 # Mobile Edition Release Process
 
 This document defines the durable process for producing a fee[dB]ack Mobile
-Edition release. The current `0.1.0` state is a public release candidate. No
-versioned source release, setup bundle, or Edition image is implied until it has
-been built, tested, and published.
+Edition release. The `v0.1.0` tag is a public source release candidate with a
+clone-and-build path. No downloadable setup bundle or published Edition image
+is currently available.
 
 ## Release Inputs
 
@@ -137,7 +137,7 @@ tag and immutable digest when a public image is introduced.
 
 ## Current Distribution Paths
 
-The current local candidate supports one clone-and-build path through
+The public `v0.1.0` source candidate supports a clone-and-build path through
 `docker-compose.release.yml`. The default inherited `docker-compose.yml` remains
 the Core development workflow and is not the Edition release command.
 

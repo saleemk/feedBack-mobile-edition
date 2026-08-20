@@ -1,7 +1,7 @@
 # Mobile Edition Release Manifest
 
 Edition version: `0.1.0`
-Status: local release candidate
+Status: public tagged source release candidate (`v0.1.0`)
 Captured: 2026-08-19
 
 This manifest pins the source inputs used by this checkout. It is intentionally
@@ -52,5 +52,5 @@ unchanged.
   is self-contained.
 - User libraries and configuration are external mounts and are not part of the
   repository or image build context.
-- The public release image and downloadable setup bundle are not published by
-  this local release candidate.
+- A public Edition image and downloadable setup bundle have not been
+  published.
