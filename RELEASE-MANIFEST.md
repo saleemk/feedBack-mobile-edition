@@ -1,8 +1,8 @@
 # Mobile Edition Release Manifest
 
 Edition version: `0.1.0`
-Status: public tagged source release candidate (`v0.1.0`)
-Captured: 2026-08-19
+Status: development snapshot after the public `v0.1.0` source release candidate
+Captured: 2026-08-21
 
 This manifest pins the source inputs used by this checkout. It is intentionally
 separate from the core application's `VERSION` file.
@@ -11,7 +11,7 @@ separate from the core application's `VERSION` file.
 
 | Component | Repository | Branch | Commit |
 | --- | --- | --- | --- |
-| fee[dB]ack Core integration | This Edition repository, based on `https://github.com/got-feedBack/feedBack` | `mobile/main` source history | `d2a9a1b962a71793a93db7586e5748a8945d396f` |
+| fee[dB]ack Core integration | This Edition repository, based on `https://github.com/got-feedBack/feedBack` | `mobile/main` source history | `f0d61eee22434b57e5531ef9a97eafb54ada377f` |
 | Mobile UI | `https://github.com/saleemk/feedBack-plugin-mobile-ui` | `main` | `c1d0ddb471ff459484b21c537be453091bb03440` |
 | Section Map | `https://github.com/saleemk/feedBack-plugin-sectionmap` | `mobile/main` | `cd082b8a4d0a58de90b7aaf8389c2dc4f6eae4bb` |
 
@@ -37,6 +37,10 @@ unchanged.
 - Core Python tests passed: `23/23`.
 - Practice-package and highway snapshot regressions passed: `19/19`.
 - Offline practice storage startup and retry tests passed: `12/12`.
+- Current focused Core offline PWA suite passed: `134/134`.
+- The current Edition snapshot passed online startup and offline recovery smoke
+  testing, including grouped artwork cards, playback, arrangement switching,
+  seeking, Mobile UI controls, Section Map, and deletion confirmation.
 - Clean exported-index image build and startup passed.
 - Bundled Mobile UI, Section Map, service worker, and diagnostic practice
   package manifest were verified in the isolated stack.

@@ -4,7 +4,14 @@ import {
     listCompletePracticePackages,
     openPracticePackageStore,
 } from '../js/practice-package-store.js';
-import { downloadPracticePackage } from '../js/practice-package-client.js';
+import {
+    downloadPracticePackage,
+    downloadPracticePackages,
+} from '../js/practice-package-client.js';
+import {
+    cacheOfflineArtwork,
+    deleteOfflineArtwork,
+} from '../js/offline-artwork-cache.js';
 import { playOfflinePracticePackage } from '../js/session.js';
 
 const TOOLBAR_ID = 'v3-songs-offline';
@@ -35,13 +42,40 @@ function packageBytes(metadata) {
     return (metadata?.chart?.bytes || 0) + (metadata?.audio?.bytes || 0);
 }
 
-function downloadsLabel(count) {
-    return `${count} ${count === 1 ? 'download' : 'downloads'}`;
-}
-
 function decodeFilename(value) {
     if (typeof value !== 'string' || value.indexOf('%') === -1) return value || '';
     try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function compareText(left, right) {
+    const a = String(left);
+    const b = String(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function comparePackages(left, right) {
+    return left.arrangement.index - right.arrangement.index
+        || compareText(left.revision, right.revision);
+}
+
+function groupCompletePackages(packages) {
+    const byFilename = new Map();
+    for (const metadata of Array.isArray(packages) ? packages : []) {
+        const filename = decodeFilename(metadata?.source?.filename);
+        if (!metadata?.complete || !filename || !metadata.revision
+                || !Number.isInteger(metadata.arrangement?.index)) continue;
+        if (!byFilename.has(filename)) byFilename.set(filename, []);
+        byFilename.get(filename).push(metadata);
+    }
+    return Array.from(byFilename, ([filename, entries]) => {
+        entries.sort(comparePackages);
+        return {
+            filename,
+            packages: entries,
+            metadata: entries[0],
+            bytes: entries.reduce((total, metadata) => total + packageBytes(metadata), 0),
+        };
+    }).sort((left, right) => compareText(left.filename, right.filename));
 }
 
 function defaultConfirm({ title, html, confirmText, danger = false }, windowRef) {
@@ -71,6 +105,11 @@ export function createOfflinePracticeController({
         close: closePracticePackageStore,
     },
     download = downloadPracticePackage,
+    downloadMany = downloadPracticePackages,
+    artwork = {
+        capture: cacheOfflineArtwork,
+        remove: deleteOfflineArtwork,
+    },
     launch = playOfflinePracticePackage,
     confirm = (options) => defaultConfirm(options, windowRef),
 } = {}) {
@@ -78,10 +117,12 @@ export function createOfflinePracticeController({
     let storageReady = false;
     let storageReadiness = null;
     let busy = false;
+    const busyGroups = new Set();
     let actionUnregister = null;
     let libraryWindowListener = null;
     let observer = null;
     let offlineFilenames = new Set();
+    const liveSongs = new Map();
 
     function toolbar() {
         return documentRef?.getElementById('v3-songs-toolbar');
@@ -93,16 +134,14 @@ export function createOfflinePracticeController({
 
     function updateCount() {
         const button = documentRef?.getElementById(TOOLBAR_ID);
-        if (button) button.textContent = `Offline (${packages.length})`;
+        if (!button) return;
+        button.textContent = `Offline (${groupCompletePackages(packages).length})`;
     }
 
     function rebuildOfflineFilenames() {
         const next = new Set();
-        packages.forEach((metadata) => {
-            const filename = metadata?.source?.filename;
-            if (!filename) return;
-            next.add(filename);
-            next.add(decodeFilename(filename));
+        groupCompletePackages(packages).forEach((group) => {
+            next.add(group.filename);
         });
         offlineFilenames = next;
     }
@@ -112,18 +151,50 @@ export function createOfflinePracticeController({
         return !!filename && (offlineFilenames.has(filename) || offlineFilenames.has(decodeFilename(filename)));
     }
 
-    function packageForSong(song) {
-        const filename = song?.filename;
-        if (!filename) return null;
-        const decoded = decodeFilename(filename);
-        return packages.find((metadata) => {
-            const stored = metadata?.source?.filename;
-            return stored && (stored === filename || stored === decoded || decodeFilename(stored) === decoded);
-        }) || null;
+    function packagesForSong(song) {
+        const filename = decodeFilename(song?.filename);
+        if (!filename) return [];
+        return groupCompletePackages(packages)
+            .find((group) => group.filename === filename)?.packages || [];
+    }
+
+    function eligibleArrangements(song) {
+        if (!Array.isArray(song?.arrangements)) return [];
+        const seen = new Set();
+        return song.arrangements.reduce((eligible, arrangement) => {
+            const index = arrangement?.index;
+            if (!Number.isFinite(index) || !Number.isInteger(index) || seen.has(index)) return eligible;
+            seen.add(index);
+            eligible.push({
+                index,
+                name: typeof arrangement.name === 'string' && arrangement.name.trim()
+                    ? arrangement.name.trim()
+                    : null,
+            });
+            return eligible;
+        }, []);
+    }
+
+    function missingArrangements(song) {
+        const stored = new Set(packagesForSong(song).map((metadata) => (
+            metadata?.arrangement?.index
+        )).filter(Number.isInteger));
+        return eligibleArrangements(song).filter((arrangement) => !stored.has(arrangement.index));
+    }
+
+    function rememberSong(song) {
+        if (song?.filename) liveSongs.set(decodeFilename(song.filename), song);
+        return song;
     }
 
     function canUseOfflineActions(song) {
         return song?.provider === 'local' && !!song?.filename;
+    }
+
+    function captureArtworkDetached(filename) {
+        void Promise.resolve()
+            .then(() => artwork.capture(filename))
+            .catch(() => {});
     }
 
     function decorateVisibleCards() {
@@ -141,10 +212,20 @@ export function createOfflinePracticeController({
             }
             if (cardHasOfflinePackage(card)) {
                 badge.textContent = 'OFFLINE';
-                badge.title = 'Stored for offline practice';
+                const filename = card.getAttribute?.('data-fn');
+                const song = liveSongs.get(decodeFilename(filename));
+                const eligible = eligibleArrangements(song);
+                if (eligible.length) {
+                    const eligibleIndexes = new Set(eligible.map((arrangement) => arrangement.index));
+                    const storedIndexes = new Set(packagesForSong(song).map((metadata) => (
+                        metadata?.arrangement?.index
+                    )).filter((index) => eligibleIndexes.has(index)));
+                    badge.title = `${storedIndexes.size} of ${eligible.length} arrangements stored for offline practice`;
+                } else {
+                    badge.title = 'Stored for offline practice';
+                }
                 badge.className = String(badge.dataset.offlineOriginalClass || badge.className || '')
-                    .replace(/\bbg-fb-primary\b/g, 'bg-amber-400')
-                    .replace(/\btext-white\b/g, 'text-black');
+                    .replace(/\bbg-fb-primary\b/g, 'bg-pink-700');
                 return;
             }
             badge.textContent = badge.dataset.offlineOriginalText || '';
@@ -178,8 +259,9 @@ export function createOfflinePracticeController({
     }
 
     function panelMarkup(estimate) {
-        const totalBytes = packages.reduce((sum, metadata) => sum + packageBytes(metadata), 0);
-        const summary = downloadsLabel(packages.length) + ' · ' + formatBytes(totalBytes) + ' used';
+        const groups = groupCompletePackages(packages);
+        const totalBytes = groups.reduce((sum, group) => sum + group.bytes, 0);
+        const summary = `${groups.length} offline ${groups.length === 1 ? 'song' : 'songs'} · ${formatBytes(totalBytes)} used`;
         const hasQuota = estimate && Number.isFinite(estimate.usage)
             && Number.isFinite(estimate.quota) && estimate.quota > 0;
         const quotaPct = hasQuota ? Math.max(0, Math.min(100, (estimate.usage / estimate.quota) * 100)) : 0;
@@ -194,13 +276,14 @@ export function createOfflinePracticeController({
                 esc(quotaPct.toFixed(1)) + '"><div class="h-full rounded-full bg-amber-300" style="width:' +
                 esc(fillPct.toFixed(1)) + '%"></div></div>'
             : '';
-        const rows = packages.length
-            ? packages.map((metadata) => {
-                const bytes = packageBytes(metadata);
+        const rows = groups.length
+            ? groups.map((group) => {
+                const metadata = group.metadata;
+                const count = group.packages.length;
                 return '<li class="flex items-center justify-between gap-2 border-t border-fb-border/40 py-2">' +
                     '<div class="min-w-0"><div class="truncate text-sm font-medium text-fb-text">' +
                     esc(packageLabel(metadata)) + '</div><div class="truncate text-xs text-fb-textDim">' +
-                    esc(metadata.arrangement.name) + ' · ' + formatBytes(bytes) +
+                    count + ' stored ' + (count === 1 ? 'arrangement' : 'arrangements') + ' · ' + formatBytes(group.bytes) +
                     '<span class="hidden sm:inline"> · ' + esc(formatDate(metadata.storedAt)) + '</span></div></div>' +
                     '<div class="flex shrink-0 gap-1.5"><button type="button" data-offline-play="' + esc(metadata.revision) +
                     '" class="rounded-md border border-fb-accent/60 px-2 py-1 text-xs text-fb-text">Open</button>' +
@@ -220,49 +303,26 @@ export function createOfflinePracticeController({
         panel.querySelectorAll('[data-offline-play]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const revision = button.getAttribute('data-offline-play');
-                const metadata = packages.find((entry) => entry.revision === revision);
-                if (!metadata || busy) return;
-                busy = true;
-                try {
-                    await launch(revision);
-                    notify(windowRef, 'Offline practice ready', packageLabel(metadata));
-                    const current = documentRef?.getElementById(PANEL_ID);
-                    if (current) closePanel(current);
-                } catch (error) {
-                    notify(windowRef, 'Offline launch failed', error.message || String(error), '!', '#EF4444');
-                    try { await refresh(); } catch (_) {}
-                } finally { busy = false; }
+                const group = groupCompletePackages(packages)
+                    .find((entry) => entry.metadata.revision === revision);
+                if (group) await openStoredGroup(group);
             });
         });
         panel.querySelectorAll('[data-offline-delete]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const revision = button.getAttribute('data-offline-delete');
-                const metadata = packages.find((entry) => entry.revision === revision);
-                if (!metadata || busy) return;
-                const ok = await confirm({
-                    title: 'Delete offline bundle?',
-                    html: 'Delete the stored full mix and default chart for <strong>' +
-                        esc(packageLabel(metadata)) + '</strong>?',
-                    confirmText: 'Delete bundle',
-                    danger: true,
-                });
-                if (!ok) return;
-                busy = true;
-                try {
-                    await store.deletePackage(revision);
-                    await refresh();
-                    notify(windowRef, 'Offline bundle deleted', packageLabel(metadata), '×');
-                } catch (error) {
-                    notify(windowRef, 'Offline delete failed', error.message || String(error), '!', '#EF4444');
-                } finally { busy = false; }
+                const group = groupCompletePackages(packages)
+                    .find((entry) => entry.metadata.revision === revision);
+                if (group) await deleteStoredGroup(group);
             });
         });
     }
 
-    async function openOfflineSong(song) {
-        const metadata = packageForSong(song);
-        if (!metadata || busy) return;
-        busy = true;
+    async function openStoredGroup(group) {
+        const key = group?.filename;
+        const metadata = group?.metadata;
+        if (!key || !metadata || busyGroups.has(key)) return;
+        busyGroups.add(key);
         try {
             await launch(metadata.revision);
             notify(windowRef, 'Offline practice ready', packageLabel(metadata));
@@ -271,32 +331,78 @@ export function createOfflinePracticeController({
         } catch (error) {
             notify(windowRef, 'Offline launch failed', error.message || String(error), '!', '#EF4444');
             try { await refresh(); } catch (_) {}
-        } finally { busy = false; }
+        } finally { busyGroups.delete(key); }
+    }
+
+    async function deleteStoredGroup(group) {
+        const key = group?.filename;
+        const stored = group?.packages || [];
+        if (!key || !stored.length || busyGroups.has(key)) return;
+        const label = packageLabel(group.metadata);
+        busyGroups.add(key);
+        let ok = false;
+        try {
+            ok = await confirm({
+                title: stored.length === 1 ? 'Delete offline bundle?' : 'Delete offline arrangements?',
+                html: 'Delete ' + stored.length + ' stored offline ' +
+                    (stored.length === 1 ? 'arrangement' : 'arrangements') + ' for <strong>' +
+                    esc(label) + '</strong>?',
+                confirmText: stored.length === 1 ? 'Delete bundle' : 'Delete arrangements',
+                danger: true,
+            });
+        } catch (error) {
+            notify(windowRef, 'Offline delete failed', error.message || String(error), '!', '#EF4444');
+            busyGroups.delete(key);
+            return;
+        }
+        if (!ok) {
+            busyGroups.delete(key);
+            return;
+        }
+        let failure = null;
+        try {
+            for (const metadata of stored) {
+                try { await store.deletePackage(metadata.revision); } catch (error) { failure ||= error; }
+            }
+            try { await refresh(); } catch (error) { failure ||= error; }
+            if (!groupCompletePackages(packages).some((entry) => entry.filename === key)) {
+                try { await artwork.remove(key); } catch (error) { failure ||= error; }
+            }
+            if (failure) {
+                notify(windowRef, stored.length === 1 ? 'Offline delete failed' : 'Offline delete incomplete',
+                    failure.message || String(failure), '!', '#EF4444');
+            } else {
+                notify(windowRef, stored.length === 1 ? 'Offline bundle deleted' : 'Offline arrangements deleted', label, '×');
+            }
+        } finally { busyGroups.delete(key); }
+    }
+
+    async function openOfflineSong(song) {
+        rememberSong(song);
+        const stored = packagesForSong(song);
+        if (!stored.length) return;
+        await openStoredGroup({
+            filename: decodeFilename(song.filename),
+            packages: stored,
+            metadata: stored[0],
+        });
     }
 
     async function deleteOfflineSong(song) {
-        const metadata = packageForSong(song);
-        if (!metadata || busy) return;
-        const ok = await confirm({
-            title: 'Delete offline bundle?',
-            html: 'Delete the stored full mix and default chart for <strong>' +
-                esc(packageLabel(metadata)) + '</strong>?',
-            confirmText: 'Delete bundle',
-            danger: true,
+        rememberSong(song);
+        const stored = packagesForSong(song);
+        if (!stored.length) return;
+        await deleteStoredGroup({
+            filename: decodeFilename(song.filename),
+            packages: stored,
+            metadata: stored[0],
         });
-        if (!ok) return;
-        busy = true;
-        try {
-            await store.deletePackage(metadata.revision);
-            await refresh();
-            notify(windowRef, 'Offline bundle deleted', packageLabel(metadata), '×');
-        } catch (error) {
-            notify(windowRef, 'Offline delete failed', error.message || String(error), '!', '#EF4444');
-        } finally { busy = false; }
     }
 
     async function synchronizePackages() {
         packages = await store.listPackages();
+        const groups = groupCompletePackages(packages);
+        groups.forEach((group) => captureArtworkDetached(group.filename));
         rebuildOfflineFilenames();
         updateCount();
         decorateVisibleCards();
@@ -332,10 +438,13 @@ export function createOfflinePracticeController({
         return synchronizePackages();
     }
 
-    async function showPanel() {
+    async function showPanel(toggle = true) {
         await refresh();
         const current = documentRef.getElementById(PANEL_ID);
-        if (current) { closePanel(current); return; }
+        if (current) {
+            if (toggle) closePanel(current);
+            return;
+        }
         const target = toolbar();
         if (!target) return;
         target.insertAdjacentHTML('afterend', panelMarkup(await storageEstimate()));
@@ -345,22 +454,38 @@ export function createOfflinePracticeController({
 
     async function downloadSong(song) {
         if (!song?.filename || busy) return;
+        rememberSong(song);
         try {
             await ensureStorageReady();
         } catch (error) {
             notify(windowRef, 'Offline storage unavailable', error.message || String(error), '!', '#EF4444');
             return;
         }
-        const existing = packageForSong(song);
-        if (existing) {
-            notify(windowRef, 'Offline bundle already stored', packageLabel(existing));
+        const existing = packagesForSong(song);
+        const eligible = eligibleArrangements(song);
+        const missing = missingArrangements(song);
+        if (eligible.length && !missing.length) {
+            notify(windowRef, 'Offline arrangements already stored', packageLabel(existing[0]));
+            return;
+        }
+        if (!eligible.length && existing.length) {
+            notify(windowRef, 'Offline bundle already stored', packageLabel(existing[0]));
             return;
         }
         const label = packageLabel({ song: {
             artist: song.artist || 'Unknown artist',
             title: song.title || song.filename,
         }});
-        const ok = await confirm({
+        const batch = eligible.length > 0;
+        const arrangementNames = missing.map((arrangement) => arrangement.name).filter(Boolean);
+        const ok = await confirm(batch ? {
+            title: `Download ${missing.length} ${missing.length === 1 ? 'arrangement' : 'arrangements'} for offline practice?`,
+            html: 'Download <strong>' + esc(label) + '</strong> for later use?' +
+                (arrangementNames.length
+                    ? '<p class="mt-2 text-xs text-fb-textDim">' + esc(arrangementNames.join(', ')) + '</p>'
+                    : ''),
+            confirmText: 'Download',
+        } : {
             title: 'Download for offline practice?',
             html: 'Download <strong>' + esc(label) + '</strong> for later use?' +
                 '<p class="mt-2 text-xs text-fb-textDim">This stores the full mix and the default chart for offline practice.</p>',
@@ -369,13 +494,19 @@ export function createOfflinePracticeController({
         if (!ok) return;
         busy = true;
         try {
-            const metadata = await download({
+            const options = {
                 filename: song.filename,
                 baseHref: locationRef.href,
                 locationRef,
-            });
+            };
+            const result = batch
+                ? await downloadMany({ ...options, arrangementIndexes: missing.map((arrangement) => arrangement.index) })
+                : await download(options);
+            captureArtworkDetached(song.filename);
             await refresh();
-            notify(windowRef, 'Offline bundle stored', packageLabel(metadata));
+            const metadata = Array.isArray(result) ? result[0] : result;
+            notify(windowRef, batch ? 'Offline arrangements stored' : 'Offline bundle stored',
+                metadata ? packageLabel(metadata) : label);
         } catch (error) {
             notify(windowRef, 'Offline download failed', error.message || String(error), '!', '#EF4444');
         } finally { busy = false; }
@@ -392,8 +523,13 @@ export function createOfflinePracticeController({
                 icon: '↓',
                 placement: 'menu',
                 order: 35,
-                applies: (song) => canUseOfflineActions(song) && !packageForSong(song),
-                enabled: () => !busy,
+                applies: (song) => {
+                    rememberSong(song);
+                    if (!canUseOfflineActions(song)) return false;
+                    const eligible = eligibleArrangements(song);
+                    return eligible.length ? missingArrangements(song).length > 0 : packagesForSong(song).length === 0;
+                },
+                enabled: (song) => !busy && !busyGroups.has(decodeFilename(song?.filename)),
                 run: downloadSong,
             }),
             registry.register({
@@ -403,8 +539,8 @@ export function createOfflinePracticeController({
                 icon: '▶',
                 placement: 'menu',
                 order: 35,
-                applies: (song) => canUseOfflineActions(song) && !!packageForSong(song),
-                enabled: () => !busy,
+                applies: (song) => canUseOfflineActions(rememberSong(song)) && packagesForSong(song).length > 0,
+                enabled: (song) => !busy && !busyGroups.has(decodeFilename(song?.filename)),
                 run: openOfflineSong,
             }),
             registry.register({
@@ -415,8 +551,8 @@ export function createOfflinePracticeController({
                 placement: 'menu',
                 order: 36,
                 destructive: true,
-                applies: (song) => canUseOfflineActions(song) && !!packageForSong(song),
-                enabled: () => !busy,
+                applies: (song) => canUseOfflineActions(rememberSong(song)) && packagesForSong(song).length > 0,
+                enabled: (song) => !busy && !busyGroups.has(decodeFilename(song?.filename)),
                 run: deleteOfflineSong,
             }),
         ];
