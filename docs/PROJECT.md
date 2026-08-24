@@ -93,7 +93,7 @@ packaging, documentation, distribution, and product-level validation.
 
 ## Current Status
 
-The current Edition is a public `0.1.0` release candidate. The source checkout,
+The current Edition is the public `0.2.0` source release. The source checkout,
 release Compose path, manifest, attribution audit, and public Edition repository
 are available. A downloadable setup bundle and pinned public image have not yet
 been published.

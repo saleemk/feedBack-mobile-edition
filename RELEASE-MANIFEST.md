@@ -1,8 +1,8 @@
 # Mobile Edition Release Manifest
 
-Edition version: `0.1.0`
-Status: development snapshot after the public `v0.1.0` source release candidate
-Captured: 2026-08-21
+Edition version: `0.2.0`
+Status: public `v0.2.0` source release
+Captured: 2026-08-24
 
 This manifest pins the source inputs used by this checkout. It is intentionally
 separate from the core application's `VERSION` file.
@@ -52,6 +52,14 @@ unchanged.
 
 ## Release Notes
 
+- Offline practice packages now store every supported arrangement while sharing
+  one downloaded audio file per song.
+- The offline Player supports arrangement switching, Mobile UI controls,
+  Section Map, 3D Highway and Venue, seeking, and recovery when the server is
+  unavailable.
+- The offline library groups arrangements into one artwork card per song and
+  uses a compact mobile layout.
+- Mobile UI is updated to `v0.5.0`.
 - This checkout vendors the two plugin snapshots under `plugins/` so a clone
   is self-contained.
 - User libraries and configuration are external mounts and are not part of the
