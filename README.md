@@ -27,6 +27,11 @@ fee[dB]ack release.
   the standalone Mobile UI plugin.
 - Keep your song library and application configuration outside the repository
   and release image.
+  
+
+<p align="center">
+  <img width="360" alt="fee[dB]ack Mobile Edition offline practice library" src="https://github.com/user-attachments/assets/9195e37d-cf3d-4ec0-98d5-1733390ffc62">
+</p>
 
 ## Quick Start
 
