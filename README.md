@@ -88,6 +88,18 @@ volume for application configuration. It does not replace the bundled app files
 with your checkout, so Mobile UI and Section Map stay at the versions recorded
 in `RELEASE-MANIFEST.md`.
 
+## Check Your Setup
+
+Run the setup doctor to inspect this checkout, Docker, the local server, and
+private Tailscale HTTPS access:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-MobileEditionSetup.ps1
+```
+
+The doctor is read-only. It reports what is ready and the next action for
+anything that still needs setup. For structured output, add `-Json`.
+
 ## Install On A Phone Or Tablet
 
 1. Install Tailscale from the
