@@ -56,6 +56,12 @@ helps create or update `.env`, starts Mobile Edition with Docker when you
 approve it, and configures private Tailscale HTTPS only when it can do so
 without replacing an existing root Serve route.
 
+When setup finishes with private HTTPS ready, it can also create and open a
+local phone/tablet guide with a QR code. The QR code is generated inside your
+local Mobile Edition container; the private URL is not sent to an online QR
+service. The HTTPS address is still shown as text if guide creation is skipped
+or unavailable.
+
 Use `-WhatIf` to preview the proposed setup actions without changing `.env`,
 Docker, or Tailscale.
 

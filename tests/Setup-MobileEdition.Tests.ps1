@@ -254,6 +254,133 @@ Assert-Equal $dockerFailure.status 'failed' 'Docker failure should report failed
 Assert-True $dockerFailure.reason.Contains('first error second error third error') 'Docker failure should include an actionable summary.'
 Assert-True (-not $dockerFailure.reason.Contains('fourth error')) 'Docker failure summary should stay concise.'
 
+function New-TestPngBytes {
+    $bytes = New-Object byte[] 160
+    $signature = [byte[]](0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+    for ($index = 0; $index -lt $signature.Length; $index += 1) {
+        $bytes[$index] = $signature[$index]
+    }
+    $bytes
+}
+
+function New-TestQrPayload {
+    [System.Convert]::ToBase64String((New-TestPngBytes))
+}
+
+function Remove-TestDeviceGuide {
+    $path = Get-MobileEditionDeviceGuidePath
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        Remove-Item -LiteralPath $path -Force
+    }
+}
+
+Assert-True (Test-MobileEditionPrivateHttpsUrl -Url 'https://desktop.tailnet.ts.net') 'HTTPS URLs should be accepted for device guide generation.'
+Assert-True (-not (Test-MobileEditionPrivateHttpsUrl -Url 'http://desktop.tailnet.ts.net')) 'HTTP URLs should be rejected for device guide generation.'
+Assert-True (-not (Test-MobileEditionPrivateHttpsUrl -Url 'not a url')) 'Malformed URLs should be rejected for device guide generation.'
+
+$decodedQr = ConvertFrom-MobileEditionQrPayload -Payload (New-TestQrPayload)
+Assert-True $decodedQr.valid 'Valid QR payloads should decode to PNG bytes.'
+$blankQr = ConvertFrom-MobileEditionQrPayload -Payload ''
+Assert-True (-not $blankQr.valid) 'Blank QR payloads should be rejected.'
+$badQr = ConvertFrom-MobileEditionQrPayload -Payload ([System.Convert]::ToBase64String([byte[]](1, 2, 3, 4)))
+Assert-True (-not $badQr.valid) 'Non-PNG QR payloads should be rejected.'
+
+$htmlUrl = 'https://desktop.tailnet.ts.net/mobile?name=Saleem&mode=%3Cready%3E'
+$guideHtml = New-MobileEditionDeviceGuideHtml -Url $htmlUrl -QrPngBytes (New-TestPngBytes)
+$encodedHtmlUrl = [System.Net.WebUtility]::HtmlEncode($htmlUrl)
+Assert-True $guideHtml.Contains('<title>Connect your device</title>') 'Guide HTML should include the required title.'
+Assert-True $guideHtml.Contains('data:image/png;base64,') 'Guide HTML should embed the QR image as a data URL.'
+Assert-True $guideHtml.Contains($encodedHtmlUrl) 'Guide HTML should HTML-encode the private URL.'
+Assert-True $guideHtml.Contains('Tailscale') 'Guide HTML should include Tailscale device steps.'
+Assert-True $guideHtml.Contains('Add to Home Screen') 'Guide HTML should include iPhone/iPad install guidance.'
+Assert-True $guideHtml.Contains('Install app') 'Guide HTML should include Android install guidance.'
+Assert-True $guideHtml.Contains('Open the installed app once while connected') 'Guide HTML should tell users to cache the app while connected.'
+Assert-True $guideHtml.Contains('Download the songs') 'Guide HTML should tell users to download offline songs.'
+Assert-True (-not ($guideHtml -match '<script')) 'Guide HTML should not include scripts.'
+Assert-True (-not ($guideHtml -match 'rel="stylesheet"')) 'Guide HTML should not include external stylesheets.'
+Assert-True (-not ($guideHtml -match 'src="https?://')) 'Guide HTML should not include external image resources.'
+
+Remove-TestDeviceGuide
+try {
+    $declinedGuideCommandCalled = $false
+    $declinedGuideBrowserCalled = $false
+    $declinedGuideOutput = @(Invoke-MobileEditionDeviceGuide `
+        -RepositoryRoot 'C:\MobileEdition' `
+        -Url 'https://desktop.tailnet.ts.net' `
+        -DockerCommand (New-TestCommand -Source 'docker') `
+        -ConfirmHandler { param($Prompt) $false } `
+        -CommandRunner { $script:declinedGuideCommandCalled = $true; throw 'QR helper should not run when guide is declined.' } `
+        -BrowserLauncher { param($Path) $script:declinedGuideBrowserCalled = $true; throw 'Browser should not launch when guide is declined.' })
+    $declinedGuide = $declinedGuideOutput | Where-Object { $_ -isnot [string] } | Select-Object -Last 1
+    Assert-Equal $declinedGuide.status 'declined' 'Declined guide confirmation should return declined.'
+    Assert-True (-not $declinedGuideCommandCalled) 'Declined guide confirmation should not run the QR helper.'
+    Assert-True (-not $declinedGuideBrowserCalled) 'Declined guide confirmation should not launch the browser.'
+    Assert-True (-not (Test-Path -LiteralPath (Get-MobileEditionDeviceGuidePath) -PathType Leaf)) 'Declined guide should not write a file.'
+} finally {
+    Remove-TestDeviceGuide
+}
+
+try {
+    $guideCommands = @()
+    $openedGuidePaths = @()
+    $successfulGuideOutput = @(Invoke-MobileEditionDeviceGuide `
+        -RepositoryRoot 'C:\MobileEdition' `
+        -Url 'https://desktop.tailnet.ts.net' `
+        -DockerCommand (New-TestCommand -Source 'docker') `
+        -ConfirmHandler { param($Prompt) $true } `
+        -CommandRunner {
+            param($FilePath, $Arguments, $WorkingDirectory)
+            $script:guideCommands += ($Arguments -join ' ')
+            [pscustomobject]@{ exitCode = 0; output = (New-TestQrPayload) }
+        } `
+        -BrowserLauncher { param($Path) $script:openedGuidePaths += $Path })
+    $successfulGuide = $successfulGuideOutput | Where-Object { $_ -isnot [string] } | Select-Object -Last 1
+    Assert-Equal $successfulGuide.status 'ready' 'Accepted guide should be created and opened.'
+    Assert-Equal $successfulGuide.path (Get-MobileEditionDeviceGuidePath) 'Accepted guide should target the known temp file.'
+    Assert-True (($guideCommands -join '|').Contains('exec -T web python /app/scripts/Generate-MobileEditionQr.py')) 'Guide should invoke the container QR helper.'
+    Assert-Equal $openedGuidePaths.Count 1 'Accepted guide should launch the generated file once.'
+    Assert-Equal $openedGuidePaths[0] (Get-MobileEditionDeviceGuidePath) 'Browser launch should receive the known temp guide path.'
+    $writtenGuide = Get-Content -LiteralPath (Get-MobileEditionDeviceGuidePath) -Raw
+    Assert-True $writtenGuide.Contains('Connect your device') 'Generated guide should contain the required page title.'
+    Assert-True $writtenGuide.Contains('https://desktop.tailnet.ts.net') 'Generated guide should preserve the visible private URL.'
+} finally {
+    Remove-TestDeviceGuide
+}
+
+try {
+    $failedGuideBrowserCalled = $false
+    $failedGuideOutput = @(Invoke-MobileEditionDeviceGuide `
+        -RepositoryRoot 'C:\MobileEdition' `
+        -Url 'https://desktop.tailnet.ts.net' `
+        -DockerCommand (New-TestCommand -Source 'docker') `
+        -ConfirmHandler { param($Prompt) $true } `
+        -CommandRunner { param($FilePath, $Arguments, $WorkingDirectory) [pscustomobject]@{ exitCode = 1; output = 'container unavailable' } } `
+        -BrowserLauncher { param($Path) $script:failedGuideBrowserCalled = $true })
+    $failedGuide = $failedGuideOutput | Where-Object { $_ -isnot [string] } | Select-Object -Last 1
+    Assert-Equal $failedGuide.status 'failed' 'QR command failure should be reported as guide failure.'
+    Assert-True $failedGuide.reason.Contains('QR generation failed') 'QR command failure should be summarized.'
+    Assert-True (-not $failedGuideBrowserCalled) 'QR command failure should not launch a browser.'
+    Assert-True (-not (Test-Path -LiteralPath (Get-MobileEditionDeviceGuidePath) -PathType Leaf)) 'QR command failure should not write the guide.'
+} finally {
+    Remove-TestDeviceGuide
+}
+
+try {
+    $browserFailureGuideOutput = @(Invoke-MobileEditionDeviceGuide `
+        -RepositoryRoot 'C:\MobileEdition' `
+        -Url 'https://desktop.tailnet.ts.net' `
+        -DockerCommand (New-TestCommand -Source 'docker') `
+        -ConfirmHandler { param($Prompt) $true } `
+        -CommandRunner { param($FilePath, $Arguments, $WorkingDirectory) [pscustomobject]@{ exitCode = 0; output = (New-TestQrPayload) } } `
+        -BrowserLauncher { param($Path) throw 'browser blocked' })
+    $browserFailureGuide = $browserFailureGuideOutput | Where-Object { $_ -isnot [string] } | Select-Object -Last 1
+    Assert-Equal $browserFailureGuide.status 'failed' 'Browser launch failure should be nonfatal to setup readiness.'
+    Assert-True $browserFailureGuide.reason.Contains('could not be opened') 'Browser launch failure should be concise.'
+    Assert-True (Test-Path -LiteralPath (Get-MobileEditionDeviceGuidePath) -PathType Leaf) 'Browser launch failure should retain the written local guide.'
+} finally {
+    Remove-TestDeviceGuide
+}
+
 $matchingServeJson = ConvertFrom-Json @'
 {
   "Web": {
@@ -435,6 +562,70 @@ try {
     Assert-True (-not (($entryOutput -join "`n").Contains('@{status='))) 'Real entry point should suppress only the structured return object.'
 } finally {
     Remove-TempSetupRepo -Root $entryRepo.root
+}
+
+$whatIfReadyRepo = New-TempSetupRepo
+try {
+    Set-Content -LiteralPath $whatIfReadyRepo.env -Value @(
+        "LIBRARY_PATH=$($whatIfReadyRepo.library)",
+        'FEEDBACK_PORT=8000'
+    ) -Encoding UTF8
+    $whatIfReadyOutput = @(Invoke-MobileEditionGuidedSetup `
+        -RepositoryRoot $whatIfReadyRepo.root `
+        -ConfirmHandler { param($Prompt) throw 'Confirmation should not be called during ready -WhatIf.' } `
+        -CommandRunner { param($FilePath, $Arguments, $WorkingDirectory) throw 'Command runner should not be called during ready -WhatIf.' } `
+        -BrowserLauncher { param($Path) throw 'Browser should not launch during ready -WhatIf.' } `
+        -DoctorRunner { param($RepositoryRoot) New-TestReport -Repository 'ready' -Docker 'ready' -Server 'ready' -Tailscale 'ready' -PrivateHttps 'ready' -HttpsUrl 'https://desktop.tailnet.ts.net' } `
+        -DryRun)
+    $whatIfReadyText = ($whatIfReadyOutput | Where-Object { $_ -is [string] }) -join "`n"
+    Assert-True $whatIfReadyText.Contains('would offer to generate and open a local phone/tablet QR guide') '-WhatIf should preview guide creation when private HTTPS is already ready.'
+    Assert-True (-not (Test-Path -LiteralPath (Get-MobileEditionDeviceGuidePath) -PathType Leaf)) '-WhatIf should not write the device guide.'
+} finally {
+    Remove-TestDeviceGuide
+    Remove-TempSetupRepo -Root $whatIfReadyRepo.root
+}
+
+$guidedReadyRepo = New-TempSetupRepo
+try {
+    Set-Content -LiteralPath $guidedReadyRepo.env -Value @(
+        "LIBRARY_PATH=$($guidedReadyRepo.library)",
+        'FEEDBACK_PORT=8000'
+    ) -Encoding UTF8
+    $guidedReadyOpened = @()
+    $guidedReadyOutput = @(Invoke-MobileEditionGuidedSetup `
+        -RepositoryRoot $guidedReadyRepo.root `
+        -ConfirmHandler { param($Prompt) $true } `
+        -CommandRunner { param($FilePath, $Arguments, $WorkingDirectory) [pscustomobject]@{ exitCode = 0; output = (New-TestQrPayload) } } `
+        -BrowserLauncher { param($Path) $script:guidedReadyOpened += $Path } `
+        -DoctorRunner { param($RepositoryRoot) New-TestReport -Repository 'ready' -Docker 'ready' -Server 'ready' -Tailscale 'ready' -PrivateHttps 'ready' -HttpsUrl 'https://desktop.tailnet.ts.net' })
+    $guidedReadyResult = $guidedReadyOutput | Where-Object { $_ -isnot [string] } | Select-Object -Last 1
+    $guidedReadyText = ($guidedReadyOutput | Where-Object { $_ -is [string] }) -join "`n"
+    Assert-Equal $guidedReadyResult.status 'ready' 'Ready guided setup should remain ready after guide creation.'
+    Assert-Equal $guidedReadyResult.deviceGuide.status 'ready' 'Ready guided setup should include a ready guide result.'
+    Assert-True $guidedReadyText.Contains('Open: https://desktop.tailnet.ts.net') 'Ready guided setup should keep the visible text URL.'
+    Assert-Equal $guidedReadyOpened.Count 1 'Ready guided setup should open the guide once after confirmation.'
+} finally {
+    Remove-TestDeviceGuide
+    Remove-TempSetupRepo -Root $guidedReadyRepo.root
+}
+
+$guidedNoUrlRepo = New-TempSetupRepo
+try {
+    Set-Content -LiteralPath $guidedNoUrlRepo.env -Value @(
+        "LIBRARY_PATH=$($guidedNoUrlRepo.library)",
+        'FEEDBACK_PORT=8000'
+    ) -Encoding UTF8
+    $guidedNoUrlConfirmCalled = $false
+    $guidedNoUrlResult = Invoke-MobileEditionGuidedSetup `
+        -RepositoryRoot $guidedNoUrlRepo.root `
+        -ConfirmHandler { param($Prompt) $script:guidedNoUrlConfirmCalled = $true; $true } `
+        -CommandRunner { param($FilePath, $Arguments, $WorkingDirectory) throw 'QR helper should not run without ready private HTTPS.' } `
+        -BrowserLauncher { param($Path) throw 'Browser should not launch without ready private HTTPS.' } `
+        -DoctorRunner { param($RepositoryRoot) New-TestReport -Repository 'ready' -Docker 'ready' -Server 'ready' -Tailscale 'needs_action' -PrivateHttps 'needs_action' } | Select-Object -Last 1
+    Assert-Equal $guidedNoUrlResult.status 'local_ready_mobile_setup_remaining' 'Setup without private HTTPS should keep local-ready status.'
+    Assert-True (-not $guidedNoUrlConfirmCalled) 'Setup without ready private HTTPS should not offer the guide.'
+} finally {
+    Remove-TempSetupRepo -Root $guidedNoUrlRepo.root
 }
 
 Write-Output 'Setup-MobileEdition.Tests.ps1 passed.'

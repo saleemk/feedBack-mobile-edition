@@ -4,6 +4,7 @@
 !Dockerfile
 !dockerfile
 !requirements.txt
+!requirements-edition.txt
 !server.py
 !main.py
 !VERSION
@@ -57,6 +58,9 @@ plugins/section_map/.specify/
 !data/
 !data/**
 
+!scripts/
+scripts/*
+!scripts/Generate-MobileEditionQr.py
 
 # Ship only the built-in diagnostic sloppak artifacts (seeded into
 # DLC_DIR/diagnostics-builtin/ at scan time). The builder script + README

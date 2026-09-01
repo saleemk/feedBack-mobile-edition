@@ -26,5 +26,13 @@ vendored plugin directories.
   recorded as an upstream metadata limitation; the Edition does not alter or
   supplement the upstream licensing declaration.
 
+## python-qrcode
+
+- Source: https://github.com/lincolnloop/python-qrcode
+- Package: `qrcode==8.2`
+- License: BSD-3-Clause
+- Use: Edition release image helper for locally generated device-handoff QR
+  codes.
+
 This edition is maintained by Saleem as a community distribution. It is not
 presented as an official fee[dB]ack Core release.

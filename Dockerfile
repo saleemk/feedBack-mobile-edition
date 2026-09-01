@@ -195,11 +195,14 @@ RUN pip install --no-cache-dir "pip==${PIP_VERSION}"
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-edition.txt .
+RUN pip install --no-cache-dir -r requirements-edition.txt
 
 COPY lib/ /app/lib/
 COPY static/ /app/static/
 COPY plugins/ /app/plugins/
 COPY data/ /app/data/
+COPY scripts/Generate-MobileEditionQr.py /app/scripts/Generate-MobileEditionQr.py
 # Replace the committed sheet with the bundled-plugin-aware build from stage 1d.
 COPY --from=tailwind-builder /build/static/tailwind.min.css /app/static/tailwind.min.css
 # tailwind.config.js + _tailwind.src.css let the server regenerate the sheet
