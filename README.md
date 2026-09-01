@@ -45,7 +45,25 @@ git clone https://github.com/saleemk/feedBack-mobile-edition.git
 Set-Location feedBack-mobile-edition
 ```
 
-2. Run Guided Setup:
+2. Open the checkout folder in File Explorer and double-click
+   `Setup-MobileEdition.cmd`.
+
+Command-line users can run the same launcher from PowerShell or Command
+Prompt:
+
+```powershell
+.\Setup-MobileEdition.cmd
+```
+
+Use `-WhatIf` through the launcher to preview the proposed setup actions
+without changing `.env`, Docker, or Tailscale:
+
+```powershell
+.\Setup-MobileEdition.cmd -WhatIf
+```
+
+If the launcher is blocked by local policy or troubleshooting requires it, run
+the underlying PowerShell script directly:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-MobileEdition.ps1
@@ -61,9 +79,6 @@ local phone/tablet guide with a QR code. The QR code is generated inside your
 local Mobile Edition container; the private URL is not sent to an online QR
 service. The HTTPS address is still shown as text if guide creation is skipped
 or unavailable.
-
-Use `-WhatIf` to preview the proposed setup actions without changing `.env`,
-Docker, or Tailscale.
 
 3. Open the private HTTPS address reported by setup on your computer, phone, or
    tablet.
