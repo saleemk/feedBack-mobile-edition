@@ -27,7 +27,6 @@ fee[dB]ack release.
   the standalone Mobile UI plugin.
 - Keep your song library and application configuration outside the repository
   and release image.
-  
 
 <p align="center">
   <img width="360" alt="fee[dB]ack Mobile Edition offline practice library" src="https://github.com/user-attachments/assets/9195e37d-cf3d-4ec0-98d5-1733390ffc62">
@@ -46,7 +45,38 @@ git clone https://github.com/saleemk/feedBack-mobile-edition.git
 Set-Location feedBack-mobile-edition
 ```
 
-2. Create your local environment file:
+2. Run Guided Setup:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-MobileEdition.ps1
+```
+
+Guided Setup runs the read-only setup doctor first, asks before each change,
+helps create or update `.env`, starts Mobile Edition with Docker when you
+approve it, and configures private Tailscale HTTPS only when it can do so
+without replacing an existing root Serve route.
+
+Use `-WhatIf` to preview the proposed setup actions without changing `.env`,
+Docker, or Tailscale.
+
+3. Open the private HTTPS address reported by setup on your computer, phone, or
+   tablet.
+
+Guided Setup starts Mobile Edition in the background, so you can close the setup
+terminal after it finishes. The first build can take a while. Tailscale Serve
+continues in the background and resumes after restarts. Use
+`tailscale serve status` to display the address again.
+
+The release Compose file mounts only your external song library and a Docker
+volume for application configuration. It does not replace the bundled app files
+with your checkout, so Mobile UI and Section Map stay at the versions recorded
+in `RELEASE-MANIFEST.md`.
+
+## Manual Setup Fallback
+
+Use these commands if you prefer to configure the checkout by hand.
+
+1. Create your local environment file:
 
 ```powershell
 Copy-Item .env.example .env
@@ -60,13 +90,13 @@ example:
 LIBRARY_PATH=C:\path\to\your\feeBack-library
 ```
 
-3. Build and start Mobile Edition:
+2. Build and start Mobile Edition:
 
 ```powershell
 docker compose -f docker-compose.release.yml up --build
 ```
 
-4. Open a second PowerShell window, sign in to Tailscale on the computer, then
+3. Open a second PowerShell window, sign in to Tailscale on the computer, then
    publish Mobile Edition privately to your tailnet over HTTPS:
 
 ```powershell
@@ -77,16 +107,7 @@ The first run may ask you to enable HTTPS for your tailnet. Tailscale then shows
 the private `https://<computer-name>.<tailnet>.ts.net` address for Mobile
 Edition. Only devices signed in to your tailnet can open it.
 
-5. Open that HTTPS address on your computer, phone, or tablet.
-
-Keep the Docker terminal open while you use the app. The first build can take a
-while. Tailscale Serve continues in the background and resumes after restarts.
-Use `tailscale serve status` to display the address again.
-
-The release Compose file mounts only your external song library and a Docker
-volume for application configuration. It does not replace the bundled app files
-with your checkout, so Mobile UI and Section Map stay at the versions recorded
-in `RELEASE-MANIFEST.md`.
+4. Open that HTTPS address on your computer, phone, or tablet.
 
 ## Check Your Setup
 

@@ -561,8 +561,24 @@ function Find-MobileEditionServeUrl {
         [int]$Port
     )
 
+    $state = Get-MobileEditionServeRootState -ServeJson $ServeJson -Port $Port
+    if ($state.status -eq 'matching') {
+        return $state.url
+    }
+    $null
+}
+
+function Get-MobileEditionServeRootState {
+    param(
+        [object]$ServeJson,
+        [int]$Port
+    )
+
     if (-not $ServeJson -or -not $ServeJson.PSObject.Properties['Web']) {
-        return $null
+        return [pscustomobject]@{
+            status = 'absent'
+            url = $null
+        }
     }
 
     foreach ($endpointProperty in $ServeJson.Web.PSObject.Properties) {
@@ -582,12 +598,23 @@ function Find-MobileEditionServeUrl {
             }
             $proxy = Find-MobileEditionLocalProxyString -Value $handlerProperty.Value -Port $Port
             if ($proxy) {
-                return $endpointUrl
+                return [pscustomobject]@{
+                    status = 'matching'
+                    url = $endpointUrl
+                }
+            }
+
+            return [pscustomobject]@{
+                status = 'conflict'
+                url = $endpointUrl
             }
         }
     }
 
-    $null
+    [pscustomobject]@{
+        status = 'absent'
+        url = $null
+    }
 }
 
 function Get-MobileEditionPrivateHttpsCheck {
