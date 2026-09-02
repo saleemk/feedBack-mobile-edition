@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const DOCTOR_RELATIVE_PATH: &[&str] = &["scripts", "Test-MobileEditionSetup.ps1"];
+const LIBRARY_RELATIVE_PATH: &[&str] = &["scripts", "Set-MobileEditionLibrary.ps1"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +84,17 @@ pub struct SetupCheckRow {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryResult {
+    pub status: String,
+    pub valid: bool,
+    pub changed: bool,
+    pub reason: String,
+    pub path: String,
+    pub port: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoctorCommandSpec {
     pub program: String,
@@ -98,6 +110,38 @@ fn get_setup_status(
     get_setup_status_for_checkout(&checkout)
 }
 
+#[tauri::command]
+fn get_library_state(state: tauri::State<'_, CompanionState>) -> Result<LibraryResult, UiError> {
+    let checkout = state.checkout.clone()?;
+    run_library_action(&checkout, "Inspect", None)
+}
+
+#[tauri::command]
+fn choose_library_folder() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("Choose your fee[dB]ack song library")
+        .pick_folder()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn validate_library_folder(
+    state: tauri::State<'_, CompanionState>,
+    path: String,
+) -> Result<LibraryResult, UiError> {
+    let checkout = state.checkout.clone()?;
+    run_library_action(&checkout, "Validate", Some(&path))
+}
+
+#[tauri::command]
+fn configure_library(
+    state: tauri::State<'_, CompanionState>,
+    path: String,
+) -> Result<LibraryResult, UiError> {
+    let checkout = state.checkout.clone()?;
+    run_library_action(&checkout, "Apply", Some(&path))
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -105,7 +149,13 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(CompanionState { checkout })
-        .invoke_handler(tauri::generate_handler![get_setup_status])
+        .invoke_handler(tauri::generate_handler![
+            get_setup_status,
+            get_library_state,
+            choose_library_folder,
+            validate_library_folder,
+            configure_library
+        ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
 }
@@ -231,6 +281,12 @@ fn doctor_script_path(root: &Path) -> PathBuf {
         .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
+fn library_script_path(root: &Path) -> PathBuf {
+    LIBRARY_RELATIVE_PATH
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part))
+}
+
 pub fn get_setup_status_for_checkout(root: &Path) -> Result<SetupStatusPayload, UiError> {
     let json = run_doctor(root)?;
     setup_status_from_json(&json)
@@ -238,16 +294,31 @@ pub fn get_setup_status_for_checkout(root: &Path) -> Result<SetupStatusPayload, 
 
 fn run_doctor(root: &Path) -> Result<String, UiError> {
     let spec = build_doctor_command_spec(root);
+    run_powershell_command(
+        &spec,
+        "doctor_launch_failed",
+        "Could not launch the setup doctor",
+        "doctor_failed",
+        "The setup doctor",
+        "doctor_invalid_json",
+        "The setup doctor returned invalid output.",
+    )
+}
+
+fn run_powershell_command(
+    spec: &DoctorCommandSpec,
+    launch_code: &str,
+    launch_message: &str,
+    failure_code: &str,
+    failure_subject: &str,
+    invalid_output_code: &str,
+    invalid_output_message: &str,
+) -> Result<String, UiError> {
     let output = Command::new(&spec.program)
         .args(&spec.args)
         .current_dir(&spec.working_directory)
         .output()
-        .map_err(|error| {
-            UiError::new(
-                "doctor_launch_failed",
-                format!("Could not launch the setup doctor: {error}"),
-            )
-        })?;
+        .map_err(|error| UiError::new(launch_code, format!("{launch_message}: {error}")))?;
 
     if !output.status.success() {
         let code = output
@@ -255,15 +326,34 @@ fn run_doctor(root: &Path) -> Result<String, UiError> {
             .code()
             .map_or_else(|| "unknown".to_string(), |code| code.to_string());
         return Err(UiError::new(
-            "doctor_failed",
-            format!("The setup doctor exited with code {code}."),
+            failure_code,
+            format!("{failure_subject} exited with code {code}."),
         ));
     }
 
-    String::from_utf8(output.stdout).map_err(|_| {
+    String::from_utf8(output.stdout)
+        .map_err(|_| UiError::new(invalid_output_code, invalid_output_message))
+}
+
+fn run_library_action(
+    root: &Path,
+    mode: &str,
+    path: Option<&str>,
+) -> Result<LibraryResult, UiError> {
+    let spec = build_library_command_spec(root, mode, path);
+    let json = run_powershell_command(
+        &spec,
+        "library_launch_failed",
+        "Could not launch library configuration",
+        "library_action_failed",
+        "Library configuration",
+        "library_invalid_json",
+        "Library configuration returned invalid output.",
+    )?;
+    serde_json::from_str::<LibraryResult>(&json).map_err(|_| {
         UiError::new(
-            "doctor_invalid_json",
-            "The setup doctor returned non-UTF-8 output.",
+            "library_invalid_json",
+            "Library configuration returned invalid JSON.",
         )
     })
 }
@@ -279,6 +369,35 @@ pub fn build_doctor_command_spec(root: &Path) -> DoctorCommandSpec {
             doctor_script_path(root).to_string_lossy().to_string(),
             "-Json".to_string(),
         ],
+        working_directory: root.to_path_buf(),
+    }
+}
+
+pub fn build_library_command_spec(
+    root: &Path,
+    mode: &str,
+    path: Option<&str>,
+) -> DoctorCommandSpec {
+    let mut args = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        library_script_path(root).to_string_lossy().to_string(),
+        "-Mode".to_string(),
+        mode.to_string(),
+        "-RepositoryRoot".to_string(),
+        root.to_string_lossy().to_string(),
+        "-Json".to_string(),
+    ];
+    if let Some(path) = path {
+        args.push("-LibraryPath".to_string());
+        args.push(path.to_string());
+    }
+
+    DoctorCommandSpec {
+        program: "powershell.exe".to_string(),
+        args,
         working_directory: root.to_path_buf(),
     }
 }
@@ -410,6 +529,33 @@ mod tests {
     }
 
     #[test]
+    fn builds_library_command_with_path_as_one_argument() {
+        let root = PathBuf::from(r"C:\Mobile Edition");
+        let library = r"D:\Music Library\My Songs";
+        let spec = build_library_command_spec(&root, "Validate", Some(library));
+
+        assert_eq!(spec.program, "powershell.exe");
+        assert_eq!(
+            spec.args,
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\Mobile Edition\scripts\Set-MobileEditionLibrary.ps1",
+                "-Mode",
+                "Validate",
+                "-RepositoryRoot",
+                r"C:\Mobile Edition",
+                "-Json",
+                "-LibraryPath",
+                library,
+            ]
+        );
+        assert_eq!(spec.working_directory, root);
+    }
+
+    #[test]
     fn parses_ready_fixture_and_maps_ordered_rows() {
         let payload =
             setup_status_from_json(include_str!("../../tests/fixtures/ready.json")).expect("json");
@@ -472,5 +618,16 @@ mod tests {
             "feedback.mobile-edition.setup-doctor.v1"
         );
         assert_eq!(payload.rows.len(), 5);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn reads_real_library_state_through_json_command_contract() {
+        let root = resolve_checkout_from_args(&[], Path::new(env!("CARGO_MANIFEST_DIR")))
+            .expect("resolve repository checkout");
+        let result = run_library_action(&root, "Inspect", None).expect("inspect library");
+
+        assert!(!result.status.is_empty());
+        assert!(!result.reason.is_empty());
     }
 }

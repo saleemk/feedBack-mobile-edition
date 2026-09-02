@@ -6,6 +6,25 @@ const overallLabel = document.querySelector('#overall-label');
 const overallReason = document.querySelector('#overall-reason');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
+const viewButtons = [...document.querySelectorAll('[data-view]')];
+const checkView = document.querySelector('#check-view');
+const libraryView = document.querySelector('#library-view');
+const footerMode = document.querySelector('#footer-mode');
+const libraryBadge = document.querySelector('#library-badge');
+const currentLibrary = document.querySelector('#current-library');
+const selectedLibrary = document.querySelector('#selected-library');
+const libraryMessage = document.querySelector('#library-message');
+const browseLibraryButton = document.querySelector('#browse-library');
+const applyLibraryButton = document.querySelector('#apply-library');
+
+let selectedPath = '';
+let selectedPathIsValid = false;
+
+function bridge() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) throw new Error('Tauri bridge is unavailable.');
+  return invoke;
+}
 
 function setBusy(isBusy) {
   refreshButton.disabled = isBusy;
@@ -80,11 +99,7 @@ function renderRow(row, index) {
 async function refreshChecks() {
   setBusy(true);
   try {
-    const invoke = window.__TAURI__?.core?.invoke;
-    if (!invoke) {
-      throw new Error('Tauri bridge is unavailable.');
-    }
-    renderStatus(await invoke('get_setup_status'));
+    renderStatus(await bridge()('get_setup_status'));
   } catch (error) {
     renderError(error);
   } finally {
@@ -92,5 +107,102 @@ async function refreshChecks() {
   }
 }
 
+function renderLibraryState(result) {
+  currentLibrary.textContent = result.path || 'No usable library is configured.';
+  libraryBadge.textContent = result.valid ? 'Ready' : 'Needs action';
+  libraryBadge.className = `library-badge ${result.valid ? 'tone-ready' : 'tone-attention'}`;
+  libraryMessage.textContent = result.reason;
+  libraryMessage.className = `library-message ${result.valid ? 'tone-ready' : 'tone-attention'}`;
+}
+
+function setLibraryBusy(isBusy, action = '') {
+  browseLibraryButton.disabled = isBusy;
+  applyLibraryButton.disabled = isBusy || !selectedPathIsValid;
+  browseLibraryButton.textContent = isBusy && action === 'browse' ? 'Opening...' : 'Browse folders';
+  applyLibraryButton.textContent = isBusy && action === 'apply' ? 'Saving...' : 'Use this library';
+}
+
+async function loadLibraryState() {
+  setLibraryBusy(true);
+  try {
+    renderLibraryState(await bridge()('get_library_state'));
+  } catch (error) {
+    libraryBadge.textContent = 'Unavailable';
+    libraryBadge.className = 'library-badge tone-error';
+    libraryMessage.textContent = error?.message || 'Could not read the library configuration.';
+    libraryMessage.className = 'library-message tone-error';
+  } finally {
+    setLibraryBusy(false);
+  }
+}
+
+function setView(view) {
+  const isLibrary = view === 'library';
+  checkView.hidden = isLibrary;
+  libraryView.hidden = !isLibrary;
+  footerMode.textContent = isLibrary ? 'Library configuration' : 'Read-only system check';
+  for (const button of viewButtons) {
+    const active = button.dataset.view === view;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', String(active));
+  }
+  if (isLibrary) void loadLibraryState();
+}
+
+async function chooseLibrary() {
+  setLibraryBusy(true, 'browse');
+  try {
+    const path = await bridge()('choose_library_folder');
+    if (!path) return;
+
+    selectedPath = path;
+    selectedPathIsValid = false;
+    selectedLibrary.textContent = path;
+    selectedLibrary.classList.remove('is-muted');
+    libraryMessage.textContent = 'Checking this folder...';
+    libraryMessage.className = 'library-message';
+
+    const result = await bridge()('validate_library_folder', { path });
+    selectedPath = result.path || path;
+    selectedLibrary.textContent = selectedPath;
+    selectedPathIsValid = result.valid;
+    libraryMessage.textContent = result.reason;
+    libraryMessage.className = `library-message ${result.valid ? 'tone-ready' : 'tone-attention'}`;
+  } catch (error) {
+    selectedPathIsValid = false;
+    libraryMessage.textContent = error?.message || 'Could not validate the selected folder.';
+    libraryMessage.className = 'library-message tone-error';
+  } finally {
+    setLibraryBusy(false);
+  }
+}
+
+async function applyLibrary() {
+  if (!selectedPathIsValid || !selectedPath) return;
+  setLibraryBusy(true, 'apply');
+  try {
+    const result = await bridge()('configure_library', { path: selectedPath });
+    renderLibraryState(result);
+    if (result.valid) {
+      currentLibrary.textContent = result.path;
+      selectedPath = '';
+      selectedPathIsValid = false;
+      selectedLibrary.textContent = 'No new folder selected.';
+      selectedLibrary.classList.add('is-muted');
+      await refreshChecks();
+    }
+  } catch (error) {
+    libraryMessage.textContent = error?.message || 'Could not save the library configuration.';
+    libraryMessage.className = 'library-message tone-error';
+  } finally {
+    setLibraryBusy(false);
+  }
+}
+
 refreshButton.addEventListener('click', refreshChecks);
+for (const button of viewButtons) {
+  button.addEventListener('click', () => setView(button.dataset.view));
+}
+browseLibraryButton.addEventListener('click', chooseLibrary);
+applyLibraryButton.addEventListener('click', applyLibrary);
 void refreshChecks();
