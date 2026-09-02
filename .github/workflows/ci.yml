@@ -54,6 +54,75 @@ jobs:
       - name: Run JS plugin-API tests
         run: node --test tests/js/*.test.js 'tests/plugins/*/js/*.test.js' 'plugins/*/tests/*.test.js'
 
+  setup-companion-windows:
+    name: setup-companion-windows
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: setup-companion/package-lock.json
+
+      - name: Install stable Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Install Setup Companion dependencies
+        working-directory: setup-companion
+        run: npm ci
+
+      - name: Run PowerShell setup suites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tests = Get-ChildItem -Path tests -Filter '*.Tests.ps1' | Sort-Object Name
+          foreach ($test in $tests) {
+            Write-Host "Running $($test.Name)"
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $test.FullName
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+
+      - name: Run Setup Companion Node tests
+        working-directory: setup-companion
+        run: npm test
+
+      - name: Check Setup Companion Rust formatting
+        working-directory: setup-companion/src-tauri
+        run: cargo fmt --check
+
+      - name: Run Setup Companion Rust tests
+        working-directory: setup-companion/src-tauri
+        run: cargo test
+
+      - name: Run Setup Companion Rust clippy
+        working-directory: setup-companion/src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: Build Setup Companion portable executable
+        working-directory: setup-companion
+        shell: pwsh
+        run: .\node_modules\.bin\tauri.cmd build --no-bundle
+
+      - name: Upload Setup Companion Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-companion-windows-exe
+          path: setup-companion/src-tauri/target/release/feedback-mobile-edition-setup-companion.exe
+          if-no-files-found: error
+
   tailwind-fresh:
     # Guard that the committed static/tailwind.min.css is in sync with source.
     # The Play CDN's runtime JIT was removed (feedBack-desktop#110); a prebuilt
