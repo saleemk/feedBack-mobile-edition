@@ -6,6 +6,7 @@ use std::process::Command;
 const DOCTOR_RELATIVE_PATH: &[&str] = &["scripts", "Test-MobileEditionSetup.ps1"];
 const LIBRARY_RELATIVE_PATH: &[&str] = &["scripts", "Set-MobileEditionLibrary.ps1"];
 const SERVER_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionServerAction.ps1"];
+const DEVICE_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionDeviceAction.ps1"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -132,6 +133,50 @@ struct ServerActionScriptResult {
     report: SetupReport,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceAction {
+    EnableHttps,
+    OpenGuide,
+}
+
+impl DeviceAction {
+    fn script_value(self) -> &'static str {
+        match self {
+            Self::EnableHttps => "EnableHttps",
+            Self::OpenGuide => "OpenGuide",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceActionPayload {
+    pub action: String,
+    pub status: String,
+    pub changed: bool,
+    pub reason: String,
+    pub status_payload: SetupStatusPayload,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeviceActionScriptResult {
+    action: String,
+    status: String,
+    changed: bool,
+    reason: String,
+    report: SetupReport,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoctorCommandSpec {
     pub program: String,
@@ -190,6 +235,17 @@ async fn run_server_action(
         .map_err(|_| UiError::new("server_action_failed", "Server action was interrupted."))?
 }
 
+#[tauri::command]
+async fn run_device_action(
+    state: tauri::State<'_, CompanionState>,
+    action: DeviceAction,
+) -> Result<DeviceActionPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || run_device_action_for_checkout(&checkout, action))
+        .await
+        .map_err(|_| UiError::new("device_action_failed", "Device action was interrupted."))?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -203,7 +259,8 @@ pub fn run() {
             choose_library_folder,
             validate_library_folder,
             configure_library,
-            run_server_action
+            run_server_action,
+            run_device_action
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
@@ -342,6 +399,12 @@ fn server_action_script_path(root: &Path) -> PathBuf {
         .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
+fn device_action_script_path(root: &Path) -> PathBuf {
+    DEVICE_ACTION_RELATIVE_PATH
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part))
+}
+
 pub fn get_setup_status_for_checkout(root: &Path) -> Result<SetupStatusPayload, UiError> {
     let json = run_doctor(root)?;
     setup_status_from_json(&json)
@@ -369,6 +432,30 @@ pub fn run_server_action_for_checkout(
         "Server action returned invalid output.",
     )?;
     server_action_from_json(&json)
+}
+
+pub fn run_device_action_for_checkout(
+    root: &Path,
+    action: DeviceAction,
+) -> Result<DeviceActionPayload, UiError> {
+    if !device_action_script_path(root).is_file() {
+        return Err(UiError::new(
+            "invalid_checkout",
+            "The selected checkout does not contain scripts/Invoke-MobileEditionDeviceAction.ps1.",
+        ));
+    }
+
+    let spec = build_device_action_command_spec(root, action);
+    let json = run_powershell_command(
+        &spec,
+        "device_action_launch_failed",
+        "Could not launch device action",
+        "device_action_failed",
+        "Device action",
+        "device_action_invalid_json",
+        "Device action returned invalid output.",
+    )?;
+    device_action_from_json(&json)
 }
 
 fn run_doctor(root: &Path) -> Result<String, UiError> {
@@ -502,6 +589,27 @@ pub fn build_server_action_command_spec(root: &Path, action: ServerAction) -> Do
     }
 }
 
+pub fn build_device_action_command_spec(root: &Path, action: DeviceAction) -> DoctorCommandSpec {
+    DoctorCommandSpec {
+        program: "powershell.exe".to_string(),
+        args: vec![
+            "-NoProfile".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-File".to_string(),
+            device_action_script_path(root)
+                .to_string_lossy()
+                .to_string(),
+            "-Action".to_string(),
+            action.script_value().to_string(),
+            "-RepositoryRoot".to_string(),
+            root.to_string_lossy().to_string(),
+            "-Json".to_string(),
+        ],
+        working_directory: root.to_path_buf(),
+    }
+}
+
 pub fn setup_status_from_json(json: &str) -> Result<SetupStatusPayload, UiError> {
     let report = serde_json::from_str::<SetupReport>(json).map_err(|_| {
         UiError::new(
@@ -530,6 +638,28 @@ pub fn server_action_from_json(json: &str) -> Result<ServerActionPayload, UiErro
             report: result.report,
             rows,
         },
+    })
+}
+
+pub fn device_action_from_json(json: &str) -> Result<DeviceActionPayload, UiError> {
+    let result = serde_json::from_str::<DeviceActionScriptResult>(json).map_err(|_| {
+        UiError::new(
+            "device_action_invalid_json",
+            "Device action returned invalid JSON.",
+        )
+    })?;
+    let rows = ordered_check_rows(&result.report);
+    Ok(DeviceActionPayload {
+        action: result.action,
+        status: result.status,
+        changed: result.changed,
+        reason: result.reason,
+        status_payload: SetupStatusPayload {
+            report: result.report,
+            rows,
+        },
+        url: result.url,
+        path: result.path,
     })
 }
 
@@ -803,6 +933,160 @@ mod tests {
         let error = server_action_from_json("not json").expect_err("invalid json");
 
         assert_eq!(error.code, "server_action_invalid_json");
+        assert!(!error.message.contains("not json"));
+    }
+
+    #[test]
+    fn deserializes_only_allowed_device_actions() {
+        assert_eq!(
+            serde_json::from_str::<DeviceAction>("\"enable_https\"").expect("enable_https"),
+            DeviceAction::EnableHttps
+        );
+        assert_eq!(
+            serde_json::from_str::<DeviceAction>("\"open_guide\"").expect("open_guide"),
+            DeviceAction::OpenGuide
+        );
+        assert!(serde_json::from_str::<DeviceAction>("\"reset_tailscale\"").is_err());
+    }
+
+    #[test]
+    fn builds_device_action_command_specs() {
+        let root = PathBuf::from(r"C:\Mobile Edition");
+        let enable = build_device_action_command_spec(&root, DeviceAction::EnableHttps);
+        let guide = build_device_action_command_spec(&root, DeviceAction::OpenGuide);
+
+        assert_eq!(enable.program, "powershell.exe");
+        assert_eq!(
+            enable.args,
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\Mobile Edition\scripts\Invoke-MobileEditionDeviceAction.ps1",
+                "-Action",
+                "EnableHttps",
+                "-RepositoryRoot",
+                r"C:\Mobile Edition",
+                "-Json",
+            ]
+        );
+        assert_eq!(
+            guide.args,
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\Mobile Edition\scripts\Invoke-MobileEditionDeviceAction.ps1",
+                "-Action",
+                "OpenGuide",
+                "-RepositoryRoot",
+                r"C:\Mobile Edition",
+                "-Json",
+            ]
+        );
+        assert_eq!(enable.working_directory, root);
+    }
+
+    #[test]
+    fn parses_device_action_result_into_status_payload() {
+        let json = r#"{
+          "action": "EnableHttps",
+          "status": "ready",
+          "changed": true,
+          "reason": "Private HTTPS is ready. Setup doctor refreshed.",
+          "url": "https://desktop.example.ts.net",
+          "report": {
+            "schema": "feedback.mobile-edition.setup-doctor.v1",
+            "generatedAt": "2026-09-02T08:00:00.0000000Z",
+            "overall": {
+              "status": "ready",
+              "reason": "Local and private mobile HTTPS access are ready."
+            },
+            "checks": {
+              "repository": {"status": "ready", "reason": "Repository ready."},
+              "docker": {"status": "ready", "reason": "Docker ready."},
+              "server": {"status": "ready", "reason": "Server ready."},
+              "tailscale": {"status": "ready", "reason": "Tailscale ready."},
+              "privateHttps": {"status": "ready", "reason": "HTTPS ready.", "url": "https://desktop.example.ts.net"}
+            }
+          }
+        }"#;
+
+        let payload = device_action_from_json(json).expect("device action json");
+
+        assert_eq!(payload.action, "EnableHttps");
+        assert_eq!(payload.status, "ready");
+        assert!(payload.changed);
+        assert_eq!(
+            payload.url.as_deref(),
+            Some("https://desktop.example.ts.net")
+        );
+        assert_eq!(payload.status_payload.rows.len(), 5);
+        assert_eq!(payload.status_payload.rows[4].key, "privateHttps");
+        assert_eq!(payload.status_payload.rows[4].status, "ready");
+    }
+
+    #[test]
+    fn parses_device_guide_result_path_and_conflict_result() {
+        let guide_json = r#"{
+          "action": "OpenGuide",
+          "status": "ready",
+          "changed": true,
+          "reason": "Device guide created and opened.",
+          "url": "https://desktop.example.ts.net",
+          "path": "C:\\Temp\\feedback-mobile-edition-device-guide.html",
+          "report": {
+            "schema": "feedback.mobile-edition.setup-doctor.v1",
+            "generatedAt": "2026-09-02T08:00:00.0000000Z",
+            "overall": {"status": "ready", "reason": "Ready."},
+            "checks": {
+              "repository": {"status": "ready", "reason": "Repository ready."},
+              "docker": {"status": "ready", "reason": "Docker ready."},
+              "server": {"status": "ready", "reason": "Server ready."},
+              "tailscale": {"status": "ready", "reason": "Tailscale ready."},
+              "privateHttps": {"status": "ready", "reason": "HTTPS ready.", "url": "https://desktop.example.ts.net"}
+            }
+          }
+        }"#;
+        let conflict_json = r#"{
+          "action": "EnableHttps",
+          "status": "conflict",
+          "changed": false,
+          "reason": "Tailscale Serve already has a root HTTPS handler for another target.",
+          "url": "https://desktop.example.ts.net",
+          "report": {
+            "schema": "feedback.mobile-edition.setup-doctor.v1",
+            "generatedAt": "2026-09-02T08:00:00.0000000Z",
+            "overall": {"status": "local_ready_mobile_setup_remaining", "reason": "Needs HTTPS."},
+            "checks": {
+              "repository": {"status": "ready", "reason": "Repository ready."},
+              "docker": {"status": "ready", "reason": "Docker ready."},
+              "server": {"status": "ready", "reason": "Server ready."},
+              "tailscale": {"status": "ready", "reason": "Tailscale ready."},
+              "privateHttps": {"status": "needs_action", "reason": "HTTPS needs action."}
+            }
+          }
+        }"#;
+
+        let guide = device_action_from_json(guide_json).expect("guide action json");
+        let conflict = device_action_from_json(conflict_json).expect("conflict action json");
+
+        assert_eq!(
+            guide.path.as_deref(),
+            Some(r"C:\Temp\feedback-mobile-edition-device-guide.html")
+        );
+        assert_eq!(guide.status, "ready");
+        assert_eq!(conflict.status, "conflict");
+        assert!(!conflict.changed);
+    }
+
+    #[test]
+    fn shapes_invalid_device_action_json_as_ui_safe_error() {
+        let error = device_action_from_json("not json").expect_err("invalid json");
+
+        assert_eq!(error.code, "device_action_invalid_json");
         assert!(!error.message.contains("not json"));
     }
 

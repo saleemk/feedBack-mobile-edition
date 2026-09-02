@@ -21,7 +21,7 @@
       <button class="step is-active" type="button" data-view="check" aria-selected="true"><b>00</b> Check</button>
       <button class="step" type="button" data-view="library" aria-selected="false"><b>01</b> Library</button>
       <button class="step" type="button" data-view="server" aria-selected="false"><b>02</b> Server</button>
-      <button class="step is-disabled" type="button" disabled><b>03</b> Devices</button>
+      <button class="step" type="button" data-view="devices" aria-selected="false"><b>03</b> Devices</button>
     </nav>
 
     <div id="check-view" class="view-panel">
@@ -110,6 +110,40 @@
         <div class="library-actions">
           <button id="server-action" class="primary-action" type="button" disabled>Start server</button>
           <p>Server actions run only after repository configuration is ready.</p>
+        </div>
+      </section>
+    </div>
+
+    <div id="devices-view" class="view-panel" hidden>
+      <section class="device-panel" aria-labelledby="devices-heading">
+        <div class="device-heading">
+          <div>
+            <p class="status-kicker">Channel 03</p>
+            <h2 id="devices-heading">Connect devices</h2>
+          </div>
+          <span id="devices-badge" class="library-badge">Checking</span>
+        </div>
+
+        <div class="server-summary">
+          <p class="field-label">Mobile access state</p>
+          <p id="devices-summary-text" class="path-value">Reading server, Tailscale, and private HTTPS status...</p>
+          <p id="devices-url" class="check-url"></p>
+        </div>
+
+        <div class="channel-head server-channel-head" aria-hidden="true">
+          <span>CH</span>
+          <span>Component / detail</span>
+          <span>State</span>
+        </div>
+        <div id="devices-checks-list" class="checks-list"></div>
+
+        <p id="devices-message" class="library-message" aria-live="polite">
+          Refresh checks to read the current device setup state.
+        </p>
+
+        <div class="library-actions">
+          <button id="devices-action" class="primary-action" type="button" disabled>Enable private HTTPS</button>
+          <p>Device actions use the existing guarded local setup helpers.</p>
         </div>
       </section>
     </div>

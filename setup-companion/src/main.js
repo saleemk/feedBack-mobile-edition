@@ -1,4 +1,4 @@
-import { buildRenderModel, buildServerModel } from './status-model.js';
+import { buildDeviceModel, buildRenderModel, buildServerModel } from './status-model.js';
 
 const refreshButton = document.querySelector('#refresh');
 const statusBand = document.querySelector('#status-band');
@@ -10,6 +10,7 @@ const viewButtons = [...document.querySelectorAll('[data-view]')];
 const checkView = document.querySelector('#check-view');
 const libraryView = document.querySelector('#library-view');
 const serverView = document.querySelector('#server-view');
+const devicesView = document.querySelector('#devices-view');
 const footerMode = document.querySelector('#footer-mode');
 const libraryBadge = document.querySelector('#library-badge');
 const currentLibrary = document.querySelector('#current-library');
@@ -22,6 +23,12 @@ const serverSummary = document.querySelector('#server-summary-text');
 const serverChecksList = document.querySelector('#server-checks-list');
 const serverMessage = document.querySelector('#server-message');
 const serverActionButton = document.querySelector('#server-action');
+const devicesBadge = document.querySelector('#devices-badge');
+const devicesSummary = document.querySelector('#devices-summary-text');
+const devicesUrl = document.querySelector('#devices-url');
+const devicesChecksList = document.querySelector('#devices-checks-list');
+const devicesMessage = document.querySelector('#devices-message');
+const devicesActionButton = document.querySelector('#devices-action');
 
 let selectedPath = '';
 let selectedPathIsValid = false;
@@ -29,6 +36,13 @@ let latestStatusPayload = null;
 let serverActionRunning = false;
 let serverActionMessage = '';
 let serverActionTone = '';
+let deviceActionRunning = false;
+let deviceActionMessage = '';
+let deviceActionTone = '';
+
+function setupActionRunning() {
+  return serverActionRunning || deviceActionRunning;
+}
 
 function bridge() {
   const invoke = window.__TAURI__?.core?.invoke;
@@ -37,7 +51,7 @@ function bridge() {
 }
 
 function setBusy(isBusy) {
-  refreshButton.disabled = isBusy || serverActionRunning;
+  refreshButton.disabled = isBusy || setupActionRunning();
   refreshButton.textContent = isBusy ? 'Refreshing...' : 'Refresh checks';
 }
 
@@ -49,6 +63,7 @@ function renderError(error) {
   generatedAt.textContent = '';
   checksList.replaceChildren();
   renderServerUnavailable(error);
+  renderDevicesUnavailable(error);
 }
 
 function renderStatus(payload) {
@@ -60,6 +75,7 @@ function renderStatus(payload) {
   generatedAt.textContent = model.generatedAt ? `Checked ${model.generatedAt}` : '';
   checksList.replaceChildren(...model.rows.map(renderRow));
   renderServerState();
+  renderDevicesState();
 }
 
 function renderRow(row, index) {
@@ -130,8 +146,8 @@ function renderLibraryState(result) {
 }
 
 function setLibraryBusy(isBusy, action = '') {
-  browseLibraryButton.disabled = isBusy || serverActionRunning;
-  applyLibraryButton.disabled = isBusy || serverActionRunning || !selectedPathIsValid;
+  browseLibraryButton.disabled = isBusy || setupActionRunning();
+  applyLibraryButton.disabled = isBusy || setupActionRunning() || !selectedPathIsValid;
   browseLibraryButton.textContent = isBusy && action === 'browse' ? 'Opening...' : 'Browse folders';
   applyLibraryButton.textContent = isBusy && action === 'apply' ? 'Saving...' : 'Use this library';
 }
@@ -153,22 +169,27 @@ async function loadLibraryState() {
 function setView(view) {
   const isLibrary = view === 'library';
   const isServer = view === 'server';
-  checkView.hidden = isLibrary || isServer;
+  const isDevices = view === 'devices';
+  checkView.hidden = isLibrary || isServer || isDevices;
   libraryView.hidden = !isLibrary;
   serverView.hidden = !isServer;
+  devicesView.hidden = !isDevices;
   footerMode.textContent = isLibrary
     ? 'Library configuration'
     : isServer
       ? 'Server control'
-      : 'Read-only system check';
+      : isDevices
+        ? 'Device connection'
+        : 'Read-only system check';
   for (const button of viewButtons) {
     const active = button.dataset.view === view;
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-selected', String(active));
-    button.disabled = serverActionRunning;
+    button.disabled = setupActionRunning();
   }
   if (isLibrary) void loadLibraryState();
   if (isServer) renderServerState();
+  if (isDevices) renderDevicesState();
 }
 
 async function chooseLibrary() {
@@ -246,7 +267,7 @@ function renderServerState() {
   serverActionButton.textContent = serverActionRunning
     ? model.action === 'restart' ? 'Restarting...' : 'Starting...'
     : model.actionLabel;
-  serverActionButton.disabled = serverActionRunning || !model.canRun;
+  serverActionButton.disabled = setupActionRunning() || !model.canRun;
 
   if (serverActionRunning) {
     serverMessage.textContent = 'Running Docker Compose now. A first build may take a few minutes.';
@@ -262,12 +283,13 @@ function renderServerState() {
 
 function setServerActionBusy(isBusy) {
   serverActionRunning = isBusy;
-  refreshButton.disabled = isBusy;
+  refreshButton.disabled = setupActionRunning();
   for (const button of viewButtons) {
-    button.disabled = isBusy;
+    button.disabled = setupActionRunning();
   }
   setLibraryBusy(isBusy);
   renderServerState();
+  renderDevicesState();
 }
 
 async function runServerAction() {
@@ -298,6 +320,88 @@ async function runServerAction() {
   }
 }
 
+function renderDevicesUnavailable(error) {
+  devicesBadge.textContent = 'Unavailable';
+  devicesBadge.className = 'library-badge tone-error';
+  devicesSummary.textContent = error?.message || 'Could not read device setup status.';
+  devicesUrl.textContent = '';
+  devicesChecksList.replaceChildren();
+  devicesMessage.textContent = 'Refresh checks before running a device action.';
+  devicesMessage.className = 'library-message tone-error';
+  devicesActionButton.disabled = true;
+}
+
+function renderDevicesState() {
+  if (!latestStatusPayload) {
+    renderDevicesUnavailable();
+    return;
+  }
+
+  const model = buildDeviceModel(latestStatusPayload);
+  devicesBadge.textContent = model.badgeLabel;
+  devicesBadge.className = `library-badge tone-${model.badgeTone}`;
+  devicesSummary.textContent = model.summary;
+  devicesUrl.textContent = model.url;
+  devicesChecksList.replaceChildren(...model.rows.map(renderRow));
+  devicesActionButton.dataset.action = model.action;
+  devicesActionButton.textContent = deviceActionRunning
+    ? model.action === 'open_guide' ? 'Opening...' : 'Enabling...'
+    : model.actionLabel;
+  devicesActionButton.disabled = setupActionRunning() || !model.canRun;
+
+  if (deviceActionRunning) {
+    devicesMessage.textContent = model.action === 'open_guide'
+      ? 'Creating and opening the local QR guide.'
+      : 'Configuring private HTTPS with Tailscale Serve.';
+    devicesMessage.className = 'library-message tone-attention';
+  } else if (deviceActionMessage) {
+    devicesMessage.textContent = deviceActionMessage;
+    devicesMessage.className = `library-message tone-${deviceActionTone}`;
+  } else {
+    devicesMessage.textContent = model.disabledReason || model.actionHint;
+    devicesMessage.className = `library-message tone-${model.canRun ? 'ready' : 'attention'}`;
+  }
+}
+
+function setDeviceActionBusy(isBusy) {
+  deviceActionRunning = isBusy;
+  refreshButton.disabled = setupActionRunning();
+  for (const button of viewButtons) {
+    button.disabled = setupActionRunning();
+  }
+  setLibraryBusy(isBusy);
+  renderServerState();
+  renderDevicesState();
+}
+
+async function runDeviceAction() {
+  const model = buildDeviceModel(latestStatusPayload);
+  if (!model.canRun || deviceActionRunning) return;
+
+  deviceActionMessage = '';
+  deviceActionTone = '';
+  setDeviceActionBusy(true);
+  try {
+    const result = await bridge()('run_device_action', { action: model.action });
+    deviceActionMessage = result.reason || 'Device action finished. Setup doctor refreshed.';
+    deviceActionTone = result.status === 'ready'
+      ? 'ready'
+      : result.status === 'failed' || result.status === 'conflict' || result.status === 'unavailable'
+        ? 'error'
+        : 'attention';
+    if (result.statusPayload) {
+      renderStatus(result.statusPayload);
+    } else {
+      await refreshChecks();
+    }
+  } catch (error) {
+    deviceActionMessage = error?.message || 'Device action failed.';
+    deviceActionTone = 'error';
+  } finally {
+    setDeviceActionBusy(false);
+  }
+}
+
 refreshButton.addEventListener('click', refreshChecks);
 for (const button of viewButtons) {
   button.addEventListener('click', () => setView(button.dataset.view));
@@ -305,4 +409,5 @@ for (const button of viewButtons) {
 browseLibraryButton.addEventListener('click', chooseLibrary);
 applyLibraryButton.addEventListener('click', applyLibrary);
 serverActionButton.addEventListener('click', runServerAction);
+devicesActionButton.addEventListener('click', runDeviceAction);
 void refreshChecks();

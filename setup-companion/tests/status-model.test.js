@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-import { buildRenderModel, buildServerModel, formatGeneratedAt } from '../src/status-model.js';
+import { buildDeviceModel, buildRenderModel, buildServerModel, formatGeneratedAt } from '../src/status-model.js';
 
 async function fixture(name) {
   return JSON.parse(await readFile(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
@@ -85,4 +85,52 @@ test('buildServerModel chooses start for a stopped server and blocks unsafe prer
 
   assert.equal(dockerUnavailable.canRun, false);
   assert.match(dockerUnavailable.disabledReason, /Docker CLI/);
+});
+
+test('buildDeviceModel blocks server and Tailscale prerequisites', async () => {
+  const serverDownPayload = await fixture('ready');
+  serverDownPayload.checks.server.status = 'needs_action';
+  serverDownPayload.checks.server.reason = 'The local Mobile Edition server is not reachable on localhost.';
+  serverDownPayload.checks.privateHttps.status = 'needs_action';
+  delete serverDownPayload.checks.privateHttps.url;
+  const serverDown = buildDeviceModel(serverDownPayload);
+
+  assert.equal(serverDown.action, 'enable_https');
+  assert.equal(serverDown.actionLabel, 'Enable private HTTPS');
+  assert.equal(serverDown.canRun, false);
+  assert.match(serverDown.disabledReason, /server is not reachable/);
+
+  const tailscaleUnavailable = buildDeviceModel(await fixture('unavailable'));
+  assert.equal(tailscaleUnavailable.canRun, false);
+  assert.match(tailscaleUnavailable.disabledReason, /Tailscale CLI/);
+
+  const tailscaleNeedsActionPayload = await fixture('ready');
+  tailscaleNeedsActionPayload.checks.tailscale.status = 'needs_action';
+  tailscaleNeedsActionPayload.checks.tailscale.reason = 'Tailscale is installed, but it is not signed in.';
+  tailscaleNeedsActionPayload.checks.privateHttps.status = 'needs_action';
+  tailscaleNeedsActionPayload.checks.privateHttps.url = '';
+  const tailscaleNeedsAction = buildDeviceModel(tailscaleNeedsActionPayload);
+
+  assert.equal(tailscaleNeedsAction.canRun, false);
+  assert.match(tailscaleNeedsAction.disabledReason, /not signed in/);
+});
+
+test('buildDeviceModel chooses HTTPS enablement or guide opening from doctor truth', async () => {
+  const httpsAbsentPayload = await fixture('ready');
+  httpsAbsentPayload.checks.privateHttps.status = 'needs_action';
+  httpsAbsentPayload.checks.privateHttps.reason = 'Tailscale Serve is not exposing this Edition port.';
+  delete httpsAbsentPayload.checks.privateHttps.url;
+  const httpsAbsent = buildDeviceModel(httpsAbsentPayload);
+
+  assert.equal(httpsAbsent.action, 'enable_https');
+  assert.equal(httpsAbsent.actionLabel, 'Enable private HTTPS');
+  assert.equal(httpsAbsent.canRun, true);
+  assert.equal(httpsAbsent.rows.map((row) => row.key).join(','), 'server,tailscale,privateHttps');
+
+  const ready = buildDeviceModel(await fixture('ready'));
+  assert.equal(ready.action, 'open_guide');
+  assert.equal(ready.actionLabel, 'Open device guide');
+  assert.equal(ready.canRun, true);
+  assert.equal(ready.url, 'https://desktop.example.ts.net');
+  assert.equal(ready.badgeLabel, 'Devices ready');
 });

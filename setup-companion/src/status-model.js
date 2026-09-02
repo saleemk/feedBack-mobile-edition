@@ -15,6 +15,7 @@ const STATUS_LABELS = {
 };
 
 const SERVER_ROW_KEYS = ['docker', 'server'];
+const DEVICE_ROW_KEYS = ['server', 'tailscale', 'privateHttps'];
 
 function toneForStatus(status) {
   if (status === 'ready') return 'ready';
@@ -112,7 +113,46 @@ export function buildServerModel(payload) {
   };
 }
 
+export function buildDeviceModel(payload) {
+  const model = buildRenderModel(payload);
+  const rowsByKey = new Map(model.rows.map((row) => [row.key, row]));
+  const server = rowsByKey.get('server') || {};
+  const tailscale = rowsByKey.get('tailscale') || {};
+  const privateHttps = rowsByKey.get('privateHttps') || {};
+  const privateHttpsReady = privateHttps.status === 'ready' && Boolean(privateHttps.url);
+  const action = privateHttpsReady ? 'open_guide' : 'enable_https';
+
+  let disabledReason = '';
+  if (server.status !== 'ready') {
+    disabledReason = server.reason || 'Start the local server before connecting devices.';
+  } else if (tailscale.status !== 'ready') {
+    disabledReason = tailscale.reason || 'Tailscale must be ready before private HTTPS can be configured.';
+  } else if (privateHttps.status === 'ready' && !privateHttps.url) {
+    disabledReason = 'Private HTTPS is ready, but the setup doctor did not return a URL.';
+  }
+
+  const actionHint = privateHttpsReady
+    ? 'Create and open the local phone/tablet QR guide.'
+    : 'Enable the existing guarded Tailscale Serve HTTPS path for this configured port.';
+
+  return {
+    action,
+    actionLabel: privateHttpsReady ? 'Open device guide' : 'Enable private HTTPS',
+    canRun: !disabledReason,
+    disabledReason,
+    actionHint,
+    badgeLabel: privateHttpsReady ? 'Devices ready' : 'Devices need setup',
+    badgeTone: privateHttpsReady ? 'ready' : 'attention',
+    summary: privateHttpsReady
+      ? 'Private HTTPS is ready for phones and tablets.'
+      : privateHttps.reason || 'Private HTTPS is not ready yet.',
+    url: privateHttpsReady ? privateHttps.url : '',
+    rows: DEVICE_ROW_KEYS.map((key) => rowsByKey.get(key)).filter(Boolean),
+  };
+}
+
 export const setupCompanionStatusModel = Object.freeze({
   buildRenderModel,
   buildServerModel,
+  buildDeviceModel,
 });

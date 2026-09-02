@@ -381,8 +381,15 @@ h1 {
   background: #0a1015;
 }
 
+.device-panel {
+  min-height: 29.25rem;
+  padding: 1.25rem;
+  background: #0a1015;
+}
+
 .library-heading,
 .server-heading,
+.device-heading,
 .library-picker,
 .library-actions {
   display: flex;
@@ -401,6 +408,11 @@ h1 {
   border-bottom: 1px solid #26343e;
 }
 
+.device-heading {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #26343e;
+}
+
 .library-heading h2 {
   margin-top: 0.3rem;
   font-size: 1.25rem;
@@ -408,6 +420,12 @@ h1 {
 }
 
 .server-heading h2 {
+  margin-top: 0.3rem;
+  font-size: 1.25rem;
+  text-transform: uppercase;
+}
+
+.device-heading h2 {
   margin-top: 0.3rem;
   font-size: 1.25rem;
   text-transform: uppercase;
