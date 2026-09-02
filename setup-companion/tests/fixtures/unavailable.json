@@ -1,0 +1,31 @@
+{
+  "schema": "feedback.mobile-edition.setup-doctor.v1",
+  "generatedAt": "2026-09-02T08:20:00.0000000Z",
+  "overall": {
+    "status": "local_ready_mobile_setup_remaining",
+    "reason": "Local Mobile Edition is ready; private mobile HTTPS still needs action."
+  },
+  "checks": {
+    "repository": {
+      "status": "ready",
+      "reason": "Repository files, .env, library path, and port are ready."
+    },
+    "docker": {
+      "status": "ready",
+      "reason": "Docker, Compose, release configuration, and the Edition container are ready."
+    },
+    "server": {
+      "status": "ready",
+      "reason": "The local Mobile Edition server responded on localhost."
+    },
+    "tailscale": {
+      "status": "unavailable",
+      "reason": "Tailscale CLI is not available.",
+      "nextAction": "Install Tailscale for Windows and sign in."
+    },
+    "privateHttps": {
+      "status": "needs_action",
+      "reason": "Private mobile HTTPS cannot be checked because Tailscale is not installed."
+    }
+  }
+}

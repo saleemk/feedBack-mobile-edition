@@ -1,0 +1,33 @@
+{
+  "schema": "feedback.mobile-edition.setup-doctor.v1",
+  "generatedAt": "2026-09-02T08:10:00.0000000Z",
+  "overall": {
+    "status": "blocked",
+    "reason": "Repository configuration needs action before Mobile Edition can run locally."
+  },
+  "checks": {
+    "repository": {
+      "status": "needs_action",
+      "reason": ".env is missing.",
+      "nextAction": "Run: Copy-Item .env.example .env, then edit LIBRARY_PATH."
+    },
+    "docker": {
+      "status": "ready",
+      "reason": "Docker is available."
+    },
+    "server": {
+      "status": "needs_action",
+      "reason": "The local Mobile Edition server is not reachable on localhost.",
+      "nextAction": "Run: docker compose -f docker-compose.release.yml up --build"
+    },
+    "tailscale": {
+      "status": "ready",
+      "reason": "Tailscale is running and signed in."
+    },
+    "privateHttps": {
+      "status": "needs_action",
+      "reason": "Tailscale Serve is not exposing this Edition port at the root HTTPS URL.",
+      "nextAction": "Run: tailscale serve --bg 8000"
+    }
+  }
+}

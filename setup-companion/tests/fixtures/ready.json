@@ -1,0 +1,31 @@
+{
+  "schema": "feedback.mobile-edition.setup-doctor.v1",
+  "generatedAt": "2026-09-02T08:00:00.0000000Z",
+  "overall": {
+    "status": "ready",
+    "reason": "Local and private mobile HTTPS access are ready."
+  },
+  "checks": {
+    "repository": {
+      "status": "ready",
+      "reason": "Repository files, .env, library path, and port are ready."
+    },
+    "docker": {
+      "status": "ready",
+      "reason": "Docker, Compose, release configuration, and the Edition container are ready."
+    },
+    "server": {
+      "status": "ready",
+      "reason": "The local Mobile Edition server responded on localhost."
+    },
+    "tailscale": {
+      "status": "ready",
+      "reason": "Tailscale is running and signed in."
+    },
+    "privateHttps": {
+      "status": "ready",
+      "reason": "Tailscale Serve exposes this Edition port over HTTPS.",
+      "url": "https://desktop.example.ts.net"
+    }
+  }
+}

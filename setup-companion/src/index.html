@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080d12">
+  <title>fee[dB]ack Mobile Edition Setup Companion</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div class="brand-lockup">
+        <h1>fee[dB]ack</h1>
+        <p class="product">Mobile Edition Setup Tracker</p>
+      </div>
+      <button id="refresh" type="button">Refresh checks</button>
+    </header>
+
+    <nav class="steps" aria-label="Setup progress">
+      <span class="step is-active"><b>00</b> Check</span>
+      <span class="step is-disabled" aria-disabled="true"><b>01</b> Library</span>
+      <span class="step is-disabled" aria-disabled="true"><b>02</b> Server</span>
+      <span class="step is-disabled" aria-disabled="true"><b>03</b> Devices</span>
+    </nav>
+
+    <section id="status-band" class="status-band tone-loading" aria-live="polite">
+      <div>
+        <p class="status-kicker">Current pattern</p>
+        <h2 id="overall-label">Loading checks</h2>
+      </div>
+      <p id="overall-reason">Reading the setup doctor report.</p>
+    </section>
+
+    <section class="checks-section" aria-labelledby="checks-heading">
+      <div class="section-head">
+        <h2 id="checks-heading">System channels</h2>
+        <p id="generated-at"></p>
+      </div>
+      <div class="channel-head" aria-hidden="true">
+        <span>CH</span>
+        <span>Component / detail</span>
+        <span>State</span>
+      </div>
+      <div id="checks-list" class="checks-list"></div>
+    </section>
+
+    <footer class="app-footer">
+      <span>Setup Doctor v1</span>
+      <span>Read-only system check</span>
+    </footer>
+  </main>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
