@@ -375,7 +375,14 @@ h1 {
   background: #0a1015;
 }
 
+.server-panel {
+  min-height: 29.25rem;
+  padding: 1.25rem;
+  background: #0a1015;
+}
+
 .library-heading,
+.server-heading,
 .library-picker,
 .library-actions {
   display: flex;
@@ -389,7 +396,18 @@ h1 {
   border-bottom: 1px solid #26343e;
 }
 
+.server-heading {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #26343e;
+}
+
 .library-heading h2 {
+  margin-top: 0.3rem;
+  font-size: 1.25rem;
+  text-transform: uppercase;
+}
+
+.server-heading h2 {
   margin-top: 0.3rem;
   font-size: 1.25rem;
   text-transform: uppercase;
@@ -439,6 +457,14 @@ h1 {
 
 .path-value.is-muted {
   color: #71818d;
+}
+
+.server-summary {
+  padding: 1rem 0;
+}
+
+.server-channel-head {
+  border-top: 1px solid #344451;
 }
 
 .library-picker {

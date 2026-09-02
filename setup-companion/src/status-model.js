@@ -14,6 +14,8 @@ const STATUS_LABELS = {
   local_ready_mobile_setup_remaining: 'Needs action',
 };
 
+const SERVER_ROW_KEYS = ['docker', 'server'];
+
 function toneForStatus(status) {
   if (status === 'ready') return 'ready';
   if (status === 'needs_action' || status === 'local_ready_mobile_setup_remaining') return 'attention';
@@ -77,6 +79,40 @@ export function buildRenderModel(payload) {
   };
 }
 
+export function buildServerModel(payload) {
+  const model = buildRenderModel(payload);
+  const rowsByKey = new Map(model.rows.map((row) => [row.key, row]));
+  const repository = rowsByKey.get('repository') || {};
+  const docker = rowsByKey.get('docker') || {};
+  const server = rowsByKey.get('server') || {};
+  const serverReady = server.status === 'ready';
+  const action = serverReady ? 'restart' : 'start';
+
+  let disabledReason = '';
+  if (repository.status !== 'ready') {
+    disabledReason = 'Finish library configuration before starting the server.';
+  } else if (docker.status === 'unavailable') {
+    disabledReason = docker.reason || 'Docker is unavailable.';
+  }
+
+  const actionHint = serverReady
+    ? 'Restart only the Mobile Edition web service.'
+    : 'Start the Mobile Edition release stack. The first build may take a few minutes.';
+
+  return {
+    action,
+    actionLabel: serverReady ? 'Restart server' : 'Start server',
+    canRun: !disabledReason,
+    disabledReason,
+    actionHint,
+    badgeLabel: serverReady ? 'Server ready' : 'Server not ready',
+    badgeTone: serverReady ? 'ready' : 'attention',
+    summary: server.reason || 'No local server status returned.',
+    rows: SERVER_ROW_KEYS.map((key) => rowsByKey.get(key)).filter(Boolean),
+  };
+}
+
 export const setupCompanionStatusModel = Object.freeze({
   buildRenderModel,
+  buildServerModel,
 });

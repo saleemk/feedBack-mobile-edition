@@ -5,6 +5,7 @@ use std::process::Command;
 
 const DOCTOR_RELATIVE_PATH: &[&str] = &["scripts", "Test-MobileEditionSetup.ps1"];
 const LIBRARY_RELATIVE_PATH: &[&str] = &["scripts", "Set-MobileEditionLibrary.ps1"];
+const SERVER_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionServerAction.ps1"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +96,42 @@ pub struct LibraryResult {
     pub port: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerAction {
+    Start,
+    Restart,
+}
+
+impl ServerAction {
+    fn script_value(self) -> &'static str {
+        match self {
+            Self::Start => "Start",
+            Self::Restart => "Restart",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerActionPayload {
+    pub action: String,
+    pub status: String,
+    pub changed: bool,
+    pub reason: String,
+    pub status_payload: SetupStatusPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerActionScriptResult {
+    action: String,
+    status: String,
+    changed: bool,
+    reason: String,
+    report: SetupReport,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoctorCommandSpec {
     pub program: String,
@@ -142,6 +179,17 @@ fn configure_library(
     run_library_action(&checkout, "Apply", Some(&path))
 }
 
+#[tauri::command]
+async fn run_server_action(
+    state: tauri::State<'_, CompanionState>,
+    action: ServerAction,
+) -> Result<ServerActionPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || run_server_action_for_checkout(&checkout, action))
+        .await
+        .map_err(|_| UiError::new("server_action_failed", "Server action was interrupted."))?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -154,7 +202,8 @@ pub fn run() {
             get_library_state,
             choose_library_folder,
             validate_library_folder,
-            configure_library
+            configure_library,
+            run_server_action
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
@@ -287,9 +336,39 @@ fn library_script_path(root: &Path) -> PathBuf {
         .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
+fn server_action_script_path(root: &Path) -> PathBuf {
+    SERVER_ACTION_RELATIVE_PATH
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part))
+}
+
 pub fn get_setup_status_for_checkout(root: &Path) -> Result<SetupStatusPayload, UiError> {
     let json = run_doctor(root)?;
     setup_status_from_json(&json)
+}
+
+pub fn run_server_action_for_checkout(
+    root: &Path,
+    action: ServerAction,
+) -> Result<ServerActionPayload, UiError> {
+    if !server_action_script_path(root).is_file() {
+        return Err(UiError::new(
+            "invalid_checkout",
+            "The selected checkout does not contain scripts/Invoke-MobileEditionServerAction.ps1.",
+        ));
+    }
+
+    let spec = build_server_action_command_spec(root, action);
+    let json = run_powershell_command(
+        &spec,
+        "server_action_launch_failed",
+        "Could not launch server action",
+        "server_action_failed",
+        "Server action",
+        "server_action_invalid_json",
+        "Server action returned invalid output.",
+    )?;
+    server_action_from_json(&json)
 }
 
 fn run_doctor(root: &Path) -> Result<String, UiError> {
@@ -402,6 +481,27 @@ pub fn build_library_command_spec(
     }
 }
 
+pub fn build_server_action_command_spec(root: &Path, action: ServerAction) -> DoctorCommandSpec {
+    DoctorCommandSpec {
+        program: "powershell.exe".to_string(),
+        args: vec![
+            "-NoProfile".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-File".to_string(),
+            server_action_script_path(root)
+                .to_string_lossy()
+                .to_string(),
+            "-Action".to_string(),
+            action.script_value().to_string(),
+            "-RepositoryRoot".to_string(),
+            root.to_string_lossy().to_string(),
+            "-Json".to_string(),
+        ],
+        working_directory: root.to_path_buf(),
+    }
+}
+
 pub fn setup_status_from_json(json: &str) -> Result<SetupStatusPayload, UiError> {
     let report = serde_json::from_str::<SetupReport>(json).map_err(|_| {
         UiError::new(
@@ -411,6 +511,26 @@ pub fn setup_status_from_json(json: &str) -> Result<SetupStatusPayload, UiError>
     })?;
     let rows = ordered_check_rows(&report);
     Ok(SetupStatusPayload { report, rows })
+}
+
+pub fn server_action_from_json(json: &str) -> Result<ServerActionPayload, UiError> {
+    let result = serde_json::from_str::<ServerActionScriptResult>(json).map_err(|_| {
+        UiError::new(
+            "server_action_invalid_json",
+            "Server action returned invalid JSON.",
+        )
+    })?;
+    let rows = ordered_check_rows(&result.report);
+    Ok(ServerActionPayload {
+        action: result.action,
+        status: result.status,
+        changed: result.changed,
+        reason: result.reason,
+        status_payload: SetupStatusPayload {
+            report: result.report,
+            rows,
+        },
+    })
 }
 
 pub fn ordered_check_rows(report: &SetupReport) -> Vec<SetupCheckRow> {
@@ -553,6 +673,137 @@ mod tests {
             ]
         );
         assert_eq!(spec.working_directory, root);
+    }
+
+    #[test]
+    fn deserializes_only_allowed_server_actions() {
+        assert_eq!(
+            serde_json::from_str::<ServerAction>("\"start\"").expect("start"),
+            ServerAction::Start
+        );
+        assert_eq!(
+            serde_json::from_str::<ServerAction>("\"restart\"").expect("restart"),
+            ServerAction::Restart
+        );
+        assert!(serde_json::from_str::<ServerAction>("\"stop\"").is_err());
+    }
+
+    #[test]
+    fn builds_server_action_command_specs() {
+        let root = PathBuf::from(r"C:\Mobile Edition");
+        let start = build_server_action_command_spec(&root, ServerAction::Start);
+        let restart = build_server_action_command_spec(&root, ServerAction::Restart);
+
+        assert_eq!(start.program, "powershell.exe");
+        assert_eq!(
+            start.args,
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\Mobile Edition\scripts\Invoke-MobileEditionServerAction.ps1",
+                "-Action",
+                "Start",
+                "-RepositoryRoot",
+                r"C:\Mobile Edition",
+                "-Json",
+            ]
+        );
+        assert_eq!(
+            restart.args,
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\Mobile Edition\scripts\Invoke-MobileEditionServerAction.ps1",
+                "-Action",
+                "Restart",
+                "-RepositoryRoot",
+                r"C:\Mobile Edition",
+                "-Json",
+            ]
+        );
+        assert_eq!(start.working_directory, root);
+    }
+
+    #[test]
+    fn parses_server_action_result_into_status_payload() {
+        let json = r#"{
+          "action": "Start",
+          "status": "ready",
+          "changed": true,
+          "reason": "Docker start command completed. Setup doctor refreshed.",
+          "report": {
+            "schema": "feedback.mobile-edition.setup-doctor.v1",
+            "generatedAt": "2026-09-02T08:00:00.0000000Z",
+            "overall": {
+              "status": "local_ready_mobile_setup_remaining",
+              "reason": "Local Mobile Edition is ready; private mobile HTTPS still needs action."
+            },
+            "checks": {
+              "repository": {"status": "ready", "reason": "Repository ready."},
+              "docker": {"status": "ready", "reason": "Docker ready."},
+              "server": {"status": "ready", "reason": "Server ready."},
+              "tailscale": {"status": "unavailable", "reason": "Tailscale unavailable."},
+              "privateHttps": {"status": "needs_action", "reason": "HTTPS needs action."}
+            }
+          }
+        }"#;
+
+        let payload = server_action_from_json(json).expect("server action json");
+
+        assert_eq!(payload.action, "Start");
+        assert_eq!(payload.status, "ready");
+        assert!(payload.changed);
+        assert_eq!(payload.status_payload.rows.len(), 5);
+        assert_eq!(payload.status_payload.rows[2].key, "server");
+        assert_eq!(payload.status_payload.rows[2].status, "ready");
+    }
+
+    #[test]
+    fn parses_server_action_timeout_result_without_fake_ready() {
+        let json = r#"{
+          "action": "Restart",
+          "status": "needs_action",
+          "changed": true,
+          "reason": "Docker restart command completed, but the server is not ready yet: The local server is not reachable.",
+          "report": {
+            "schema": "feedback.mobile-edition.setup-doctor.v1",
+            "generatedAt": "2026-09-02T08:00:00.0000000Z",
+            "overall": {
+              "status": "blocked",
+              "reason": "The local Mobile Edition server is not ready yet."
+            },
+            "checks": {
+              "repository": {"status": "ready", "reason": "Repository ready."},
+              "docker": {"status": "ready", "reason": "Docker ready."},
+              "server": {"status": "needs_action", "reason": "The local server is not reachable."},
+              "tailscale": {"status": "unavailable", "reason": "Tailscale unavailable."},
+              "privateHttps": {"status": "needs_action", "reason": "HTTPS needs action."}
+            }
+          }
+        }"#;
+
+        let payload = server_action_from_json(json).expect("server action timeout json");
+
+        assert_eq!(payload.action, "Restart");
+        assert_eq!(payload.status, "needs_action");
+        assert!(payload.changed);
+        assert_eq!(payload.status_payload.rows[2].status, "needs_action");
+        assert_eq!(
+            payload.status_payload.rows[2].reason,
+            "The local server is not reachable."
+        );
+    }
+
+    #[test]
+    fn shapes_invalid_server_action_json_as_ui_safe_error() {
+        let error = server_action_from_json("not json").expect_err("invalid json");
+
+        assert_eq!(error.code, "server_action_invalid_json");
+        assert!(!error.message.contains("not json"));
     }
 
     #[test]

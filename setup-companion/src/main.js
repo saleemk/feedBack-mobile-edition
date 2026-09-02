@@ -1,4 +1,4 @@
-import { buildRenderModel } from './status-model.js';
+import { buildRenderModel, buildServerModel } from './status-model.js';
 
 const refreshButton = document.querySelector('#refresh');
 const statusBand = document.querySelector('#status-band');
@@ -9,6 +9,7 @@ const checksList = document.querySelector('#checks-list');
 const viewButtons = [...document.querySelectorAll('[data-view]')];
 const checkView = document.querySelector('#check-view');
 const libraryView = document.querySelector('#library-view');
+const serverView = document.querySelector('#server-view');
 const footerMode = document.querySelector('#footer-mode');
 const libraryBadge = document.querySelector('#library-badge');
 const currentLibrary = document.querySelector('#current-library');
@@ -16,9 +17,18 @@ const selectedLibrary = document.querySelector('#selected-library');
 const libraryMessage = document.querySelector('#library-message');
 const browseLibraryButton = document.querySelector('#browse-library');
 const applyLibraryButton = document.querySelector('#apply-library');
+const serverBadge = document.querySelector('#server-badge');
+const serverSummary = document.querySelector('#server-summary-text');
+const serverChecksList = document.querySelector('#server-checks-list');
+const serverMessage = document.querySelector('#server-message');
+const serverActionButton = document.querySelector('#server-action');
 
 let selectedPath = '';
 let selectedPathIsValid = false;
+let latestStatusPayload = null;
+let serverActionRunning = false;
+let serverActionMessage = '';
+let serverActionTone = '';
 
 function bridge() {
   const invoke = window.__TAURI__?.core?.invoke;
@@ -27,25 +37,29 @@ function bridge() {
 }
 
 function setBusy(isBusy) {
-  refreshButton.disabled = isBusy;
+  refreshButton.disabled = isBusy || serverActionRunning;
   refreshButton.textContent = isBusy ? 'Refreshing...' : 'Refresh checks';
 }
 
 function renderError(error) {
+  latestStatusPayload = null;
   statusBand.className = 'status-band tone-error';
   overallLabel.textContent = 'Setup doctor unavailable';
   overallReason.textContent = error?.message || 'The setup companion could not read the setup doctor.';
   generatedAt.textContent = '';
   checksList.replaceChildren();
+  renderServerUnavailable(error);
 }
 
 function renderStatus(payload) {
+  latestStatusPayload = payload;
   const model = buildRenderModel(payload);
   statusBand.className = `status-band tone-${model.overall.tone}`;
   overallLabel.textContent = model.overall.label;
   overallReason.textContent = model.overall.reason;
   generatedAt.textContent = model.generatedAt ? `Checked ${model.generatedAt}` : '';
   checksList.replaceChildren(...model.rows.map(renderRow));
+  renderServerState();
 }
 
 function renderRow(row, index) {
@@ -116,8 +130,8 @@ function renderLibraryState(result) {
 }
 
 function setLibraryBusy(isBusy, action = '') {
-  browseLibraryButton.disabled = isBusy;
-  applyLibraryButton.disabled = isBusy || !selectedPathIsValid;
+  browseLibraryButton.disabled = isBusy || serverActionRunning;
+  applyLibraryButton.disabled = isBusy || serverActionRunning || !selectedPathIsValid;
   browseLibraryButton.textContent = isBusy && action === 'browse' ? 'Opening...' : 'Browse folders';
   applyLibraryButton.textContent = isBusy && action === 'apply' ? 'Saving...' : 'Use this library';
 }
@@ -138,15 +152,23 @@ async function loadLibraryState() {
 
 function setView(view) {
   const isLibrary = view === 'library';
-  checkView.hidden = isLibrary;
+  const isServer = view === 'server';
+  checkView.hidden = isLibrary || isServer;
   libraryView.hidden = !isLibrary;
-  footerMode.textContent = isLibrary ? 'Library configuration' : 'Read-only system check';
+  serverView.hidden = !isServer;
+  footerMode.textContent = isLibrary
+    ? 'Library configuration'
+    : isServer
+      ? 'Server control'
+      : 'Read-only system check';
   for (const button of viewButtons) {
     const active = button.dataset.view === view;
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-selected', String(active));
+    button.disabled = serverActionRunning;
   }
   if (isLibrary) void loadLibraryState();
+  if (isServer) renderServerState();
 }
 
 async function chooseLibrary() {
@@ -199,10 +221,88 @@ async function applyLibrary() {
   }
 }
 
+function renderServerUnavailable(error) {
+  serverBadge.textContent = 'Unavailable';
+  serverBadge.className = 'library-badge tone-error';
+  serverSummary.textContent = error?.message || 'Could not read Docker or server status.';
+  serverChecksList.replaceChildren();
+  serverMessage.textContent = 'Refresh checks before running a server action.';
+  serverMessage.className = 'library-message tone-error';
+  serverActionButton.disabled = true;
+}
+
+function renderServerState() {
+  if (!latestStatusPayload) {
+    renderServerUnavailable();
+    return;
+  }
+
+  const model = buildServerModel(latestStatusPayload);
+  serverBadge.textContent = model.badgeLabel;
+  serverBadge.className = `library-badge tone-${model.badgeTone}`;
+  serverSummary.textContent = model.summary;
+  serverChecksList.replaceChildren(...model.rows.map(renderRow));
+  serverActionButton.dataset.action = model.action;
+  serverActionButton.textContent = serverActionRunning
+    ? model.action === 'restart' ? 'Restarting...' : 'Starting...'
+    : model.actionLabel;
+  serverActionButton.disabled = serverActionRunning || !model.canRun;
+
+  if (serverActionRunning) {
+    serverMessage.textContent = 'Running Docker Compose now. A first build may take a few minutes.';
+    serverMessage.className = 'library-message tone-attention';
+  } else if (serverActionMessage) {
+    serverMessage.textContent = serverActionMessage;
+    serverMessage.className = `library-message tone-${serverActionTone}`;
+  } else {
+    serverMessage.textContent = model.disabledReason || model.actionHint;
+    serverMessage.className = `library-message tone-${model.canRun ? 'ready' : 'attention'}`;
+  }
+}
+
+function setServerActionBusy(isBusy) {
+  serverActionRunning = isBusy;
+  refreshButton.disabled = isBusy;
+  for (const button of viewButtons) {
+    button.disabled = isBusy;
+  }
+  setLibraryBusy(isBusy);
+  renderServerState();
+}
+
+async function runServerAction() {
+  const model = buildServerModel(latestStatusPayload);
+  if (!model.canRun || serverActionRunning) return;
+
+  serverActionMessage = '';
+  serverActionTone = '';
+  setServerActionBusy(true);
+  try {
+    const result = await bridge()('run_server_action', { action: model.action });
+    serverActionMessage = result.reason || 'Server action finished. Setup doctor refreshed.';
+    serverActionTone = result.status === 'ready'
+      ? 'ready'
+      : result.status === 'failed' || result.status === 'unavailable'
+        ? 'error'
+        : 'attention';
+    if (result.statusPayload) {
+      renderStatus(result.statusPayload);
+    } else {
+      await refreshChecks();
+    }
+  } catch (error) {
+    serverActionMessage = error?.message || 'Server action failed.';
+    serverActionTone = 'error';
+  } finally {
+    setServerActionBusy(false);
+  }
+}
+
 refreshButton.addEventListener('click', refreshChecks);
 for (const button of viewButtons) {
   button.addEventListener('click', () => setView(button.dataset.view));
 }
 browseLibraryButton.addEventListener('click', chooseLibrary);
 applyLibraryButton.addEventListener('click', applyLibrary);
+serverActionButton.addEventListener('click', runServerAction);
 void refreshChecks();
