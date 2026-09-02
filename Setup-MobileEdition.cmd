@@ -1,9 +1,9 @@
 @echo off
 setlocal
 
-set "SETUP_SCRIPT=%~dp0scripts\Setup-MobileEdition.ps1"
+set "SETUP_ROUTER=%~dp0scripts\Start-MobileEditionSetup.ps1"
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SETUP_SCRIPT%" %*
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SETUP_ROUTER%" %*
 set "SETUP_EXIT=%ERRORLEVEL%"
 
 if not "%SETUP_EXIT%"=="0" (
