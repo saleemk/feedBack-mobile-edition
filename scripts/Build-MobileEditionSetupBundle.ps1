@@ -81,21 +81,36 @@ function Invoke-MobileEditionBundleProcess {
         [string]$Description
     )
 
-    $stdoutPath = [System.IO.Path]::GetTempFileName()
-    $stderrPath = [System.IO.Path]::GetTempFileName()
+    $process = $null
     try {
-        $process = Start-Process `
-            -FilePath $FilePath `
-            -ArgumentList (Join-MobileEditionBundleProcessArguments -Arguments $Arguments) `
-            -WorkingDirectory $WorkingDirectory `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath `
-            -Wait `
-            -PassThru `
-            -ErrorAction Stop
+        $argumentText = Join-MobileEditionBundleProcessArguments -Arguments $Arguments
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        if ([System.IO.Path]::GetExtension($FilePath) -in @('.cmd', '.bat')) {
+            $commandInterpreter = if ($env:ComSpec) { $env:ComSpec } else { Join-Path -Path $env:SystemRoot -ChildPath 'System32\cmd.exe' }
+            $startInfo.FileName = $commandInterpreter
+            $startInfo.Arguments = '/d /s /c "' + (ConvertTo-MobileEditionBundleProcessArgument -Argument $FilePath) + $(if ($argumentText) { " $argumentText" } else { '' }) + '"'
+        } else {
+            $startInfo.FileName = $FilePath
+            $startInfo.Arguments = $argumentText
+        }
+        $startInfo.WorkingDirectory = $WorkingDirectory
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
 
-        $stdout = if (Test-Path -LiteralPath $stdoutPath) { @(Get-Content -LiteralPath $stdoutPath | ForEach-Object { $_.ToString() }) } else { @() }
-        $stderr = if (Test-Path -LiteralPath $stderrPath) { @(Get-Content -LiteralPath $stderrPath | ForEach-Object { $_.ToString() }) } else { @() }
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            throw "$Description process did not start."
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+        $stderrText = $stderrTask.GetAwaiter().GetResult()
+        $stdout = @($stdoutText -split "`r?`n" | Where-Object { $_ -ne '' })
+        $stderr = @($stderrText -split "`r?`n" | Where-Object { $_ -ne '' })
         if ($process.ExitCode -ne 0) {
             throw "$Description failed with exit code $($process.ExitCode). $((@($stdout) + @($stderr)) -join "`n")"
         }
@@ -103,8 +118,9 @@ function Invoke-MobileEditionBundleProcess {
     } catch {
         throw "$Description failed to start or complete: $($_.Exception.Message)"
     } finally {
-        Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+        if ($process) {
+            $process.Dispose()
+        }
     }
 }
 
