@@ -2,10 +2,20 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-import { buildDeviceModel, buildRenderModel, buildServerModel, formatGeneratedAt } from '../src/status-model.js';
+import {
+  buildDeviceModel,
+  buildRenderModel,
+  buildServerModel,
+  buildWorkflowModel,
+  formatGeneratedAt,
+} from '../src/status-model.js';
 
 async function fixture(name) {
   return JSON.parse(await readFile(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 test('buildRenderModel maps ready fixture into ordered rows', async () => {
@@ -87,6 +97,22 @@ test('buildServerModel chooses start for a stopped server and blocks unsafe prer
   assert.match(dockerUnavailable.disabledReason, /Docker CLI/);
 });
 
+test('buildServerModel disables control for existing server ownership conflicts', async () => {
+  const conflictPayload = await fixture('ready');
+  conflictPayload.checks.docker.status = 'needs_action';
+  conflictPayload.checks.docker.reason = 'This checkout Docker service is not ready.';
+  const model = buildServerModel(conflictPayload);
+
+  assert.equal(model.conflict, true);
+  assert.equal(model.action, 'none');
+  assert.equal(model.actionLabel, 'Resolve conflict');
+  assert.equal(model.canRun, false);
+  assert.equal(model.badgeLabel, 'Server conflict');
+  assert.equal(model.badgeTone, 'error');
+  assert.match(model.disabledReason, /server is responding/i);
+  assert.match(model.disabledReason, /Docker\/Compose service is not ready/);
+});
+
 test('buildDeviceModel blocks server and Tailscale prerequisites', async () => {
   const serverDownPayload = await fixture('ready');
   serverDownPayload.checks.server.status = 'needs_action';
@@ -95,12 +121,13 @@ test('buildDeviceModel blocks server and Tailscale prerequisites', async () => {
   delete serverDownPayload.checks.privateHttps.url;
   const serverDown = buildDeviceModel(serverDownPayload);
 
-  assert.equal(serverDown.action, 'enable_https');
-  assert.equal(serverDown.actionLabel, 'Enable private HTTPS');
+  assert.equal(serverDown.action, 'none');
+  assert.equal(serverDown.actionLabel, 'Private HTTPS unavailable');
   assert.equal(serverDown.canRun, false);
   assert.match(serverDown.disabledReason, /server is not reachable/);
 
   const tailscaleUnavailable = buildDeviceModel(await fixture('unavailable'));
+  assert.equal(tailscaleUnavailable.action, 'none');
   assert.equal(tailscaleUnavailable.canRun, false);
   assert.match(tailscaleUnavailable.disabledReason, /Tailscale CLI/);
 
@@ -111,6 +138,7 @@ test('buildDeviceModel blocks server and Tailscale prerequisites', async () => {
   tailscaleNeedsActionPayload.checks.privateHttps.url = '';
   const tailscaleNeedsAction = buildDeviceModel(tailscaleNeedsActionPayload);
 
+  assert.equal(tailscaleNeedsAction.action, 'none');
   assert.equal(tailscaleNeedsAction.canRun, false);
   assert.match(tailscaleNeedsAction.disabledReason, /not signed in/);
 });
@@ -133,4 +161,160 @@ test('buildDeviceModel chooses HTTPS enablement or guide opening from doctor tru
   assert.equal(ready.canRun, true);
   assert.equal(ready.url, 'https://desktop.example.ts.net');
   assert.equal(ready.badgeLabel, 'Devices ready');
+});
+
+test('buildDeviceModel disables unavailable private HTTPS while preserving local readiness', async () => {
+  const payload = clone(await fixture('ready'));
+  payload.checks.privateHttps.status = 'unavailable';
+  payload.checks.privateHttps.reason = 'Tailscale Serve status could not be inspected.';
+  delete payload.checks.privateHttps.url;
+  const model = buildDeviceModel(payload);
+
+  assert.equal(model.action, 'none');
+  assert.equal(model.actionLabel, 'Private HTTPS unavailable');
+  assert.equal(model.canRun, false);
+  assert.equal(model.badgeLabel, 'Ready locally');
+  assert.equal(model.badgeTone, 'attention');
+  assert.match(model.disabledReason, /Serve status could not be inspected/);
+  assert.match(model.summary, /Serve status could not be inspected/);
+  assert.equal(model.url, '');
+});
+
+test('buildWorkflowModel routes clean first run to Library without automatic action', async () => {
+  const workflow = buildWorkflowModel(await fixture('needs-action'));
+
+  assert.equal(workflow.stage, 'library');
+  assert.equal(workflow.view, 'library');
+  assert.equal(workflow.state, 'actionable');
+  assert.equal(workflow.complete, false);
+  assert.equal(workflow.locallyReady, false);
+  assert.equal(workflow.actionable, true);
+  assert.equal(workflow.automaticAction, null);
+  assert.match(workflow.label, /library/i);
+});
+
+test('buildWorkflowModel routes configured library with stopped server to Server', async () => {
+  const payload = clone(await fixture('ready'));
+  payload.checks.server.status = 'needs_action';
+  payload.checks.server.reason = 'The local Mobile Edition server is not reachable on localhost.';
+  payload.checks.privateHttps.status = 'needs_action';
+  delete payload.checks.privateHttps.url;
+  const workflow = buildWorkflowModel(payload);
+
+  assert.equal(workflow.stage, 'server');
+  assert.equal(workflow.view, 'server');
+  assert.equal(workflow.state, 'actionable');
+  assert.equal(workflow.actionable, true);
+  assert.equal(workflow.automaticAction, null);
+  assert.match(workflow.reason, /server is not reachable/);
+});
+
+test('buildWorkflowModel skips Server when this checkout server is already ready', async () => {
+  const workflow = buildWorkflowModel(await fixture('unavailable'));
+
+  assert.equal(workflow.stage, 'devices');
+  assert.equal(workflow.view, 'devices');
+  assert.equal(workflow.label, 'Ready locally');
+  assert.equal(workflow.locallyReady, true);
+  assert.equal(workflow.automaticAction, null);
+});
+
+test('buildWorkflowModel classifies responding server plus non-ready Compose as conflict', async () => {
+  const payload = clone(await fixture('ready'));
+  payload.checks.docker.status = 'needs_action';
+  payload.checks.docker.reason = 'This checkout Docker service is not ready.';
+  const workflow = buildWorkflowModel(payload);
+
+  assert.equal(workflow.stage, 'server');
+  assert.equal(workflow.view, 'server');
+  assert.equal(workflow.state, 'server_conflict');
+  assert.equal(workflow.serverConflict, true);
+  assert.equal(workflow.actionable, false);
+  assert.equal(workflow.blocked, true);
+  assert.equal(workflow.automaticAction, null);
+  assert.match(workflow.reason, /server is responding/i);
+});
+
+test('buildWorkflowModel presents Tailscale unavailable as locally ready Devices state', async () => {
+  const payload = await fixture('unavailable');
+  const workflow = buildWorkflowModel(payload);
+  const devices = buildDeviceModel(payload);
+
+  assert.equal(workflow.stage, 'devices');
+  assert.equal(workflow.view, 'devices');
+  assert.equal(workflow.state, 'locally_ready');
+  assert.equal(workflow.label, 'Ready locally');
+  assert.equal(workflow.locallyReady, true);
+  assert.equal(workflow.actionable, false);
+  assert.equal(workflow.blocked, false);
+  assert.equal(workflow.automaticAction, null);
+  assert.equal(devices.badgeLabel, 'Ready locally');
+  assert.equal(devices.canRun, false);
+  assert.match(devices.summary, /Local Mobile Edition is ready/);
+});
+
+test('buildWorkflowModel routes private HTTPS missing with Tailscale ready to actionable Devices', async () => {
+  const payload = clone(await fixture('ready'));
+  payload.checks.privateHttps.status = 'needs_action';
+  payload.checks.privateHttps.reason = 'Tailscale Serve is not exposing this Edition port.';
+  delete payload.checks.privateHttps.url;
+  const workflow = buildWorkflowModel(payload);
+  const devices = buildDeviceModel(payload);
+
+  assert.equal(workflow.stage, 'devices');
+  assert.equal(workflow.view, 'devices');
+  assert.equal(workflow.state, 'actionable');
+  assert.equal(workflow.label, 'Ready locally');
+  assert.equal(workflow.locallyReady, true);
+  assert.equal(workflow.actionable, true);
+  assert.equal(workflow.automaticAction, null);
+  assert.equal(devices.action, 'enable_https');
+  assert.equal(devices.canRun, true);
+});
+
+test('buildWorkflowModel keeps unavailable private HTTPS on locally ready Devices', async () => {
+  const payload = clone(await fixture('ready'));
+  payload.checks.privateHttps.status = 'unavailable';
+  payload.checks.privateHttps.reason = 'Tailscale Serve status could not be inspected.';
+  delete payload.checks.privateHttps.url;
+  const workflow = buildWorkflowModel(payload);
+
+  assert.equal(workflow.stage, 'devices');
+  assert.equal(workflow.view, 'devices');
+  assert.equal(workflow.state, 'locally_ready');
+  assert.equal(workflow.label, 'Ready locally');
+  assert.equal(workflow.locallyReady, true);
+  assert.equal(workflow.actionable, false);
+  assert.equal(workflow.blocked, false);
+  assert.equal(workflow.automaticAction, null);
+  assert.match(workflow.reason, /Serve status could not be inspected/);
+});
+
+test('buildWorkflowModel routes all-ready returning installs to Check dashboard', async () => {
+  const workflow = buildWorkflowModel(await fixture('ready'));
+
+  assert.equal(workflow.stage, 'check');
+  assert.equal(workflow.view, 'check');
+  assert.equal(workflow.state, 'complete');
+  assert.equal(workflow.label, 'Setup complete');
+  assert.equal(workflow.complete, true);
+  assert.equal(workflow.locallyReady, true);
+  assert.equal(workflow.automaticAction, null);
+});
+
+test('buildWorkflowModel never derives an automatic mutating action for any stage', async () => {
+  const ready = await fixture('ready');
+  const cases = [
+    await fixture('needs-action'),
+    { ...clone(ready), checks: { ...clone(ready.checks), server: { ...ready.checks.server, status: 'needs_action' } } },
+    { ...clone(ready), checks: { ...clone(ready.checks), docker: { ...ready.checks.docker, status: 'needs_action' } } },
+    await fixture('unavailable'),
+    { ...clone(ready), checks: { ...clone(ready.checks), privateHttps: { status: 'needs_action', reason: 'Private HTTPS missing.' } } },
+    { ...clone(ready), checks: { ...clone(ready.checks), privateHttps: { status: 'unavailable', reason: 'Private HTTPS could not be inspected.' } } },
+    ready,
+  ];
+
+  for (const payload of cases) {
+    assert.equal(buildWorkflowModel(payload).automaticAction, null);
+  }
 });

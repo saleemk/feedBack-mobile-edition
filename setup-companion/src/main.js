@@ -1,4 +1,4 @@
-import { buildDeviceModel, buildRenderModel, buildServerModel } from './status-model.js';
+import { buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
 
 const refreshButton = document.querySelector('#refresh');
 const statusBand = document.querySelector('#status-band');
@@ -33,6 +33,8 @@ const devicesActionButton = document.querySelector('#devices-action');
 let selectedPath = '';
 let selectedPathIsValid = false;
 let latestStatusPayload = null;
+let initialWorkflowRouteApplied = false;
+let actionSequence = 0;
 let serverActionRunning = false;
 let serverActionMessage = '';
 let serverActionTone = '';
@@ -66,16 +68,33 @@ function renderError(error) {
   renderDevicesUnavailable(error);
 }
 
-function renderStatus(payload) {
+function routeToWorkflow(workflow, preferredView = '') {
+  const view = preferredView || workflow?.view;
+  if (!view) return;
+  setView(view, { routed: true });
+}
+
+function clearActionMessages() {
+  serverActionMessage = '';
+  serverActionTone = '';
+  deviceActionMessage = '';
+  deviceActionTone = '';
+}
+
+function renderStatus(payload, options = {}) {
+  const { route = false, clearMessages = false, preferredView = '' } = options;
   latestStatusPayload = payload;
   const model = buildRenderModel(payload);
-  statusBand.className = `status-band tone-${model.overall.tone}`;
-  overallLabel.textContent = model.overall.label;
-  overallReason.textContent = model.overall.reason;
+  const workflow = buildWorkflowModel(payload);
+  if (clearMessages) clearActionMessages();
+  statusBand.className = `status-band tone-${workflow.tone || model.overall.tone}`;
+  overallLabel.textContent = workflow.label || model.overall.label;
+  overallReason.textContent = workflow.reason || model.overall.reason;
   generatedAt.textContent = model.generatedAt ? `Checked ${model.generatedAt}` : '';
   checksList.replaceChildren(...model.rows.map(renderRow));
   renderServerState();
   renderDevicesState();
+  if (route) routeToWorkflow(workflow, preferredView);
 }
 
 function renderRow(row, index) {
@@ -126,10 +145,11 @@ function renderRow(row, index) {
   return item;
 }
 
-async function refreshChecks() {
+async function refreshChecks(options = {}) {
+  const { route = false, clearMessages = false, preferredView = '' } = options;
   setBusy(true);
   try {
-    renderStatus(await bridge()('get_setup_status'));
+    renderStatus(await bridge()('get_setup_status'), { route, clearMessages, preferredView });
   } catch (error) {
     renderError(error);
   } finally {
@@ -166,7 +186,8 @@ async function loadLibraryState() {
   }
 }
 
-function setView(view) {
+function setView(view, options = {}) {
+  const { routed = false } = options;
   const isLibrary = view === 'library';
   const isServer = view === 'server';
   const isDevices = view === 'devices';
@@ -186,6 +207,9 @@ function setView(view) {
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-selected', String(active));
     button.disabled = setupActionRunning();
+  }
+  if (routed && !initialWorkflowRouteApplied) {
+    initialWorkflowRouteApplied = true;
   }
   if (isLibrary) void loadLibraryState();
   if (isServer) renderServerState();
@@ -232,7 +256,7 @@ async function applyLibrary() {
       selectedPathIsValid = false;
       selectedLibrary.textContent = 'No new folder selected.';
       selectedLibrary.classList.add('is-muted');
-      await refreshChecks();
+      await refreshChecks({ route: true, clearMessages: true, preferredView: 'server' });
     }
   } catch (error) {
     libraryMessage.textContent = error?.message || 'Could not save the library configuration.';
@@ -296,11 +320,13 @@ async function runServerAction() {
   const model = buildServerModel(latestStatusPayload);
   if (!model.canRun || serverActionRunning) return;
 
+  const operation = ++actionSequence;
   serverActionMessage = '';
   serverActionTone = '';
   setServerActionBusy(true);
   try {
     const result = await bridge()('run_server_action', { action: model.action });
+    if (operation !== actionSequence) return;
     serverActionMessage = result.reason || 'Server action finished. Setup doctor refreshed.';
     serverActionTone = result.status === 'ready'
       ? 'ready'
@@ -308,15 +334,16 @@ async function runServerAction() {
         ? 'error'
         : 'attention';
     if (result.statusPayload) {
-      renderStatus(result.statusPayload);
+      renderStatus(result.statusPayload, { route: true, clearMessages: true });
     } else {
-      await refreshChecks();
+      await refreshChecks({ route: true, clearMessages: true });
     }
   } catch (error) {
+    if (operation !== actionSequence) return;
     serverActionMessage = error?.message || 'Server action failed.';
     serverActionTone = 'error';
   } finally {
-    setServerActionBusy(false);
+    if (operation === actionSequence) setServerActionBusy(false);
   }
 }
 
@@ -378,11 +405,13 @@ async function runDeviceAction() {
   const model = buildDeviceModel(latestStatusPayload);
   if (!model.canRun || deviceActionRunning) return;
 
+  const operation = ++actionSequence;
   deviceActionMessage = '';
   deviceActionTone = '';
   setDeviceActionBusy(true);
   try {
     const result = await bridge()('run_device_action', { action: model.action });
+    if (operation !== actionSequence) return;
     deviceActionMessage = result.reason || 'Device action finished. Setup doctor refreshed.';
     deviceActionTone = result.status === 'ready'
       ? 'ready'
@@ -390,19 +419,20 @@ async function runDeviceAction() {
         ? 'error'
         : 'attention';
     if (result.statusPayload) {
-      renderStatus(result.statusPayload);
+      renderStatus(result.statusPayload, { route: true, clearMessages: true });
     } else {
-      await refreshChecks();
+      await refreshChecks({ route: true, clearMessages: true });
     }
   } catch (error) {
+    if (operation !== actionSequence) return;
     deviceActionMessage = error?.message || 'Device action failed.';
     deviceActionTone = 'error';
   } finally {
-    setDeviceActionBusy(false);
+    if (operation === actionSequence) setDeviceActionBusy(false);
   }
 }
 
-refreshButton.addEventListener('click', refreshChecks);
+refreshButton.addEventListener('click', () => refreshChecks({ route: !initialWorkflowRouteApplied, clearMessages: true }));
 for (const button of viewButtons) {
   button.addEventListener('click', () => setView(button.dataset.view));
 }
@@ -410,4 +440,4 @@ browseLibraryButton.addEventListener('click', chooseLibrary);
 applyLibraryButton.addEventListener('click', applyLibrary);
 serverActionButton.addEventListener('click', runServerAction);
 devicesActionButton.addEventListener('click', runDeviceAction);
-void refreshChecks();
+void refreshChecks({ route: true, clearMessages: true });
