@@ -143,3 +143,19 @@ the Core development workflow and is not the Edition release command.
 
 A downloadable setup bundle and pinned public image are planned distribution
 paths. They are not available until a release explicitly publishes them.
+
+## Local Windows Setup Bundle Candidate
+
+Maintainers can create an unpublished local Windows setup-bundle candidate from
+a clean checkout:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Build-MobileEditionSetupBundle.ps1 -Version <edition-version>
+```
+
+The builder runs `npm ci` from `setup-companion/package-lock.json`, builds the
+Setup Companion in release `--no-bundle` mode, archives committed `HEAD`, adds
+the companion as root `Setup-MobileEdition.exe`, writes
+`SETUP-BUNDLE-MANIFEST.json`, and stores the zip plus `.sha256` file under
+ignored `artifacts/setup-bundles/`. This is a local inspection artifact only;
+publishing still requires Saleem's explicit release approval.

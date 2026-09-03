@@ -67,6 +67,7 @@ plugins/section_map/.specify/
 node_modules/
 test-results/
 playwright-report/
+/artifacts/
 setup-companion/node_modules/
 setup-companion/dist/
 setup-companion/src-tauri/gen/
