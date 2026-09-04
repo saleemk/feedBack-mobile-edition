@@ -3,10 +3,15 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const DOCTOR_RELATIVE_PATH: &[&str] = &["scripts", "Test-MobileEditionSetup.ps1"];
 const LIBRARY_RELATIVE_PATH: &[&str] = &["scripts", "Set-MobileEditionLibrary.ps1"];
 const SERVER_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionServerAction.ps1"];
 const DEVICE_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionDeviceAction.ps1"];
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -480,9 +485,12 @@ fn run_powershell_command(
     invalid_output_code: &str,
     invalid_output_message: &str,
 ) -> Result<String, UiError> {
-    let output = Command::new(&spec.program)
-        .args(&spec.args)
-        .current_dir(&spec.working_directory)
+    let mut command = Command::new(&spec.program);
+    command.args(&spec.args).current_dir(&spec.working_directory);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let output = command
         .output()
         .map_err(|error| UiError::new(launch_code, format!("{launch_message}: {error}")))?;
 

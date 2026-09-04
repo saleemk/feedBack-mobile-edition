@@ -503,6 +503,58 @@ h1 {
   line-height: 1.45;
 }
 
+.server-progress {
+  display: grid;
+  grid-template-columns: 6.75rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  min-height: 4.75rem;
+  margin: 0 0 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #344451;
+  background: #101820;
+}
+
+.server-progress[hidden] {
+  display: none;
+}
+
+.server-progress-track {
+  position: relative;
+  height: 0.55rem;
+  overflow: hidden;
+  border: 1px solid #2d424b;
+  background: #071014;
+}
+
+.server-progress-track span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -45%;
+  width: 45%;
+  background: #42e8ce;
+  box-shadow: 0 0 12px rgba(66, 232, 206, 0.35);
+  animation: server-progress-sweep 1.4s ease-in-out infinite;
+}
+
+.server-progress-copy {
+  min-width: 0;
+}
+
+.server-progress-copy p:first-child {
+  color: #e7f2f2;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.server-progress-copy p:last-child {
+  margin-top: 0.3rem;
+  color: #f6cf45;
+  font-size: 0.72rem;
+}
+
 .library-actions {
   justify-content: flex-start;
   padding-top: 0.25rem;
@@ -575,9 +627,14 @@ h1 {
   }
 
   .library-picker,
-  .library-actions {
+  .library-actions,
+  .server-progress {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .server-progress {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .library-picker {
@@ -612,5 +669,15 @@ h1 {
     align-items: flex-start;
     flex-direction: column;
     gap: 0.25rem;
+  }
+}
+
+@keyframes server-progress-sweep {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(322%);
   }
 }

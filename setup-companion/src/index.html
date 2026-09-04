@@ -107,6 +107,16 @@
           Refresh checks to read the current server state.
         </p>
 
+        <div id="server-progress" class="server-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
+          <div class="server-progress-track" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="server-progress-copy">
+            <p id="server-progress-title">Starting Mobile Edition</p>
+            <p id="server-progress-elapsed">Elapsed 0:00</p>
+          </div>
+        </div>
+
         <div class="library-actions">
           <button id="server-action" class="primary-action" type="button" disabled>Start server</button>
           <p>Server actions run only after repository configuration is ready.</p>

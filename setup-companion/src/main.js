@@ -23,6 +23,9 @@ const serverSummary = document.querySelector('#server-summary-text');
 const serverChecksList = document.querySelector('#server-checks-list');
 const serverMessage = document.querySelector('#server-message');
 const serverActionButton = document.querySelector('#server-action');
+const serverProgress = document.querySelector('#server-progress');
+const serverProgressTitle = document.querySelector('#server-progress-title');
+const serverProgressElapsed = document.querySelector('#server-progress-elapsed');
 const devicesBadge = document.querySelector('#devices-badge');
 const devicesSummary = document.querySelector('#devices-summary-text');
 const devicesUrl = document.querySelector('#devices-url');
@@ -36,6 +39,9 @@ let latestStatusPayload = null;
 let initialWorkflowRouteApplied = false;
 let actionSequence = 0;
 let serverActionRunning = false;
+let serverActionKind = '';
+let serverActionStartedAt = 0;
+let serverActionTimer = 0;
 let serverActionMessage = '';
 let serverActionTone = '';
 let deviceActionRunning = false;
@@ -79,6 +85,49 @@ function clearActionMessages() {
   serverActionTone = '';
   deviceActionMessage = '';
   deviceActionTone = '';
+}
+
+function formatElapsedTime(milliseconds) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function serverActionProgressLabel(action) {
+  return action === 'restart' ? 'Restarting Mobile Edition' : 'Starting Mobile Edition';
+}
+
+function serverActionButtonLabel(action) {
+  return action === 'restart' ? 'Restarting...' : 'Starting...';
+}
+
+function renderServerProgress() {
+  serverProgress.hidden = !serverActionRunning;
+  if (!serverActionRunning) {
+    serverProgressTitle.textContent = 'Starting Mobile Edition';
+    serverProgressElapsed.textContent = 'Elapsed 0:00';
+    return;
+  }
+
+  serverProgressTitle.textContent = serverActionProgressLabel(serverActionKind);
+  serverProgressElapsed.textContent = `Elapsed ${formatElapsedTime(Date.now() - serverActionStartedAt)}`;
+}
+
+function startServerProgress(action) {
+  serverActionKind = action;
+  serverActionStartedAt = Date.now();
+  renderServerProgress();
+  window.clearInterval(serverActionTimer);
+  serverActionTimer = window.setInterval(renderServerProgress, 1000);
+}
+
+function stopServerProgress() {
+  window.clearInterval(serverActionTimer);
+  serverActionTimer = 0;
+  serverActionKind = '';
+  serverActionStartedAt = 0;
+  renderServerProgress();
 }
 
 function renderStatus(payload, options = {}) {
@@ -289,12 +338,13 @@ function renderServerState() {
   serverChecksList.replaceChildren(...model.rows.map(renderRow));
   serverActionButton.dataset.action = model.action;
   serverActionButton.textContent = serverActionRunning
-    ? model.action === 'restart' ? 'Restarting...' : 'Starting...'
+    ? serverActionButtonLabel(serverActionKind || model.action)
     : model.actionLabel;
   serverActionButton.disabled = setupActionRunning() || !model.canRun;
+  renderServerProgress();
 
   if (serverActionRunning) {
-    serverMessage.textContent = 'Running Docker Compose now. A first build may take a few minutes.';
+    serverMessage.textContent = 'Running the approved server action now. This can take a few minutes.';
     serverMessage.className = 'library-message tone-attention';
   } else if (serverActionMessage) {
     serverMessage.textContent = serverActionMessage;
@@ -305,8 +355,13 @@ function renderServerState() {
   }
 }
 
-function setServerActionBusy(isBusy) {
+function setServerActionBusy(isBusy, action = '') {
   serverActionRunning = isBusy;
+  if (isBusy) {
+    startServerProgress(action);
+  } else {
+    stopServerProgress();
+  }
   refreshButton.disabled = setupActionRunning();
   for (const button of viewButtons) {
     button.disabled = setupActionRunning();
@@ -323,7 +378,7 @@ async function runServerAction() {
   const operation = ++actionSequence;
   serverActionMessage = '';
   serverActionTone = '';
-  setServerActionBusy(true);
+  setServerActionBusy(true, model.action);
   try {
     const result = await bridge()('run_server_action', { action: model.action });
     if (operation !== actionSequence) return;
