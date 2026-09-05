@@ -33,6 +33,16 @@ test('buildRenderModel maps ready fixture into ordered rows', async () => {
   assert.equal(model.rows.at(-1).url, 'https://desktop.example.ts.net');
 });
 
+test('buildRenderModel preserves optional remediation contract fields', async () => {
+  const payload = clone(await fixture('ready'));
+  payload.checks.docker.status = 'unavailable';
+  payload.checks.docker.reason = 'Docker prerequisite key test.';
+  payload.checks.docker.remediation = 'get_docker';
+  const model = buildRenderModel(payload);
+
+  assert.equal(model.rows.find((row) => row.key === 'docker').remediation, 'get_docker');
+});
+
 test('buildRenderModel labels action and unavailable states', async () => {
   const needsAction = buildRenderModel(await fixture('needs-action'));
   const unavailable = buildRenderModel(await fixture('unavailable'));
@@ -80,6 +90,7 @@ test('buildServerModel chooses start for a stopped server and blocks unsafe prer
   const startable = buildServerModel(startablePayload);
 
   assert.equal(startable.action, 'start');
+  assert.equal(startable.actionKind, 'server');
   assert.equal(startable.actionLabel, 'Start server');
   assert.equal(startable.canRun, true);
 
@@ -97,6 +108,58 @@ test('buildServerModel chooses start for a stopped server and blocks unsafe prer
   assert.match(dockerUnavailable.disabledReason, /Docker CLI/);
 });
 
+test('buildServerModel selects Docker prerequisite and server actions from remediation keys', async () => {
+  const getDockerPayload = clone(await fixture('ready'));
+  getDockerPayload.checks.docker.status = 'unavailable';
+  getDockerPayload.checks.docker.reason = 'Install guidance is available.';
+  getDockerPayload.checks.docker.nextAction = 'Human text that does not name Docker.';
+  getDockerPayload.checks.docker.remediation = 'get_docker';
+  getDockerPayload.checks.server.status = 'needs_action';
+  const getDocker = buildServerModel(getDockerPayload);
+
+  assert.equal(getDocker.actionKind, 'prerequisite');
+  assert.equal(getDocker.action, 'get_docker');
+  assert.equal(getDocker.actionLabel, 'Get Docker Desktop');
+  assert.equal(getDocker.canRun, true);
+
+  const openDockerPayload = clone(await fixture('ready'));
+  openDockerPayload.checks.docker.status = 'needs_action';
+  openDockerPayload.checks.docker.reason = 'Daemon is not reachable.';
+  openDockerPayload.checks.docker.nextAction = 'Human text that does not name Docker Desktop.';
+  openDockerPayload.checks.docker.remediation = 'open_docker';
+  openDockerPayload.checks.server.status = 'needs_action';
+  const openDocker = buildServerModel(openDockerPayload);
+
+  assert.equal(openDocker.actionKind, 'prerequisite');
+  assert.equal(openDocker.action, 'open_docker');
+  assert.equal(openDocker.actionLabel, 'Open Docker Desktop');
+  assert.equal(openDocker.canRun, true);
+
+  const stoppedContainerPayload = clone(await fixture('ready'));
+  stoppedContainerPayload.checks.docker.status = 'needs_action';
+  stoppedContainerPayload.checks.docker.reason = 'Container is stopped.';
+  stoppedContainerPayload.checks.docker.remediation = 'start_server';
+  stoppedContainerPayload.checks.server.status = 'needs_action';
+  const stoppedContainer = buildServerModel(stoppedContainerPayload);
+
+  assert.equal(stoppedContainer.actionKind, 'server');
+  assert.equal(stoppedContainer.action, 'start');
+  assert.equal(stoppedContainer.actionLabel, 'Start server');
+  assert.equal(stoppedContainer.canRun, true);
+
+  const invalidComposePayload = clone(await fixture('ready'));
+  invalidComposePayload.checks.docker.status = 'needs_action';
+  invalidComposePayload.checks.docker.reason = 'Compose config is invalid.';
+  invalidComposePayload.checks.docker.nextAction = 'Run the compose config check.';
+  invalidComposePayload.checks.server.status = 'needs_action';
+  const invalidCompose = buildServerModel(invalidComposePayload);
+
+  assert.equal(invalidCompose.actionKind, 'none');
+  assert.equal(invalidCompose.action, 'none');
+  assert.equal(invalidCompose.canRun, false);
+  assert.match(invalidCompose.disabledReason, /Compose config is invalid/);
+});
+
 test('buildServerModel disables control for existing server ownership conflicts', async () => {
   const conflictPayload = await fixture('ready');
   conflictPayload.checks.docker.status = 'needs_action';
@@ -105,6 +168,7 @@ test('buildServerModel disables control for existing server ownership conflicts'
 
   assert.equal(model.conflict, true);
   assert.equal(model.action, 'none');
+  assert.equal(model.actionKind, 'none');
   assert.equal(model.actionLabel, 'Resolve conflict');
   assert.equal(model.canRun, false);
   assert.equal(model.badgeLabel, 'Server conflict');
@@ -122,12 +186,14 @@ test('buildDeviceModel blocks server and Tailscale prerequisites', async () => {
   const serverDown = buildDeviceModel(serverDownPayload);
 
   assert.equal(serverDown.action, 'none');
+  assert.equal(serverDown.actionKind, 'none');
   assert.equal(serverDown.actionLabel, 'Private HTTPS unavailable');
   assert.equal(serverDown.canRun, false);
   assert.match(serverDown.disabledReason, /server is not reachable/);
 
   const tailscaleUnavailable = buildDeviceModel(await fixture('unavailable'));
   assert.equal(tailscaleUnavailable.action, 'none');
+  assert.equal(tailscaleUnavailable.actionKind, 'none');
   assert.equal(tailscaleUnavailable.canRun, false);
   assert.match(tailscaleUnavailable.disabledReason, /Tailscale CLI/);
 
@@ -139,6 +205,7 @@ test('buildDeviceModel blocks server and Tailscale prerequisites', async () => {
   const tailscaleNeedsAction = buildDeviceModel(tailscaleNeedsActionPayload);
 
   assert.equal(tailscaleNeedsAction.action, 'none');
+  assert.equal(tailscaleNeedsAction.actionKind, 'none');
   assert.equal(tailscaleNeedsAction.canRun, false);
   assert.match(tailscaleNeedsAction.disabledReason, /not signed in/);
 });
@@ -151,16 +218,71 @@ test('buildDeviceModel chooses HTTPS enablement or guide opening from doctor tru
   const httpsAbsent = buildDeviceModel(httpsAbsentPayload);
 
   assert.equal(httpsAbsent.action, 'enable_https');
+  assert.equal(httpsAbsent.actionKind, 'device');
   assert.equal(httpsAbsent.actionLabel, 'Enable private HTTPS');
   assert.equal(httpsAbsent.canRun, true);
   assert.equal(httpsAbsent.rows.map((row) => row.key).join(','), 'server,tailscale,privateHttps');
 
   const ready = buildDeviceModel(await fixture('ready'));
   assert.equal(ready.action, 'open_guide');
+  assert.equal(ready.actionKind, 'device');
   assert.equal(ready.actionLabel, 'Open device guide');
   assert.equal(ready.canRun, true);
   assert.equal(ready.url, 'https://desktop.example.ts.net');
   assert.equal(ready.badgeLabel, 'Devices ready');
+});
+
+test('buildDeviceModel selects Tailscale prerequisite actions from remediation keys', async () => {
+  const getTailscalePayload = clone(await fixture('ready'));
+  getTailscalePayload.checks.tailscale.status = 'unavailable';
+  getTailscalePayload.checks.tailscale.reason = 'Install guidance is available.';
+  getTailscalePayload.checks.tailscale.nextAction = 'Human text that does not name Tailscale.';
+  getTailscalePayload.checks.tailscale.remediation = 'get_tailscale';
+  getTailscalePayload.checks.privateHttps.status = 'needs_action';
+  delete getTailscalePayload.checks.privateHttps.url;
+  const getTailscale = buildDeviceModel(getTailscalePayload);
+
+  assert.equal(getTailscale.actionKind, 'prerequisite');
+  assert.equal(getTailscale.action, 'get_tailscale');
+  assert.equal(getTailscale.actionLabel, 'Get Tailscale');
+  assert.equal(getTailscale.canRun, true);
+  assert.equal(getTailscale.badgeLabel, 'Ready locally');
+
+  const openTailscalePayload = clone(await fixture('ready'));
+  openTailscalePayload.checks.tailscale.status = 'needs_action';
+  openTailscalePayload.checks.tailscale.reason = 'Tailscale needs attention.';
+  openTailscalePayload.checks.tailscale.nextAction = 'Human text that does not say open.';
+  openTailscalePayload.checks.tailscale.remediation = 'tailscale_help';
+  openTailscalePayload.checks.privateHttps.status = 'needs_action';
+  delete openTailscalePayload.checks.privateHttps.url;
+  const openTailscale = buildDeviceModel(openTailscalePayload);
+
+  assert.equal(openTailscale.actionKind, 'prerequisite');
+  assert.equal(openTailscale.action, 'tailscale_help');
+  assert.equal(openTailscale.actionLabel, 'Tailscale sign-in steps');
+  assert.equal(openTailscale.canRun, true);
+  assert.equal(openTailscale.badgeLabel, 'Ready locally');
+});
+
+test('prerequisite model actions stay separate from server and device mutating actions', async () => {
+  const dockerPayload = clone(await fixture('ready'));
+  dockerPayload.checks.docker.status = 'unavailable';
+  dockerPayload.checks.docker.remediation = 'get_docker';
+  dockerPayload.checks.server.status = 'needs_action';
+  const dockerModel = buildServerModel(dockerPayload);
+
+  assert.equal(dockerModel.actionKind, 'prerequisite');
+  assert.doesNotMatch(dockerModel.action, /^(start|restart)$/);
+
+  const tailscalePayload = clone(await fixture('ready'));
+  tailscalePayload.checks.tailscale.status = 'needs_action';
+  tailscalePayload.checks.tailscale.remediation = 'tailscale_help';
+  tailscalePayload.checks.privateHttps.status = 'needs_action';
+  delete tailscalePayload.checks.privateHttps.url;
+  const tailscaleModel = buildDeviceModel(tailscalePayload);
+
+  assert.equal(tailscaleModel.actionKind, 'prerequisite');
+  assert.doesNotMatch(tailscaleModel.action, /^(enable_https|open_guide)$/);
 });
 
 test('buildDeviceModel disables unavailable private HTTPS while preserving local readiness', async () => {
@@ -171,6 +293,7 @@ test('buildDeviceModel disables unavailable private HTTPS while preserving local
   const model = buildDeviceModel(payload);
 
   assert.equal(model.action, 'none');
+  assert.equal(model.actionKind, 'none');
   assert.equal(model.actionLabel, 'Private HTTPS unavailable');
   assert.equal(model.canRun, false);
   assert.equal(model.badgeLabel, 'Ready locally');

@@ -10,6 +10,8 @@ const DOCTOR_RELATIVE_PATH: &[&str] = &["scripts", "Test-MobileEditionSetup.ps1"
 const LIBRARY_RELATIVE_PATH: &[&str] = &["scripts", "Set-MobileEditionLibrary.ps1"];
 const SERVER_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionServerAction.ps1"];
 const DEVICE_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionDeviceAction.ps1"];
+const DOCKER_INSTALL_URL: &str = "https://docs.docker.com/desktop/setup/install/windows-install/";
+const TAILSCALE_INSTALL_URL: &str = "https://tailscale.com/docs/install/windows";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -75,6 +77,8 @@ pub struct SetupCheck {
     #[serde(default)]
     pub next_action: Option<String>,
     #[serde(default)]
+    pub remediation: Option<String>,
+    #[serde(default)]
     pub url: Option<String>,
 }
 
@@ -87,6 +91,8 @@ pub struct SetupCheckRow {
     pub reason: String,
     #[serde(default)]
     pub next_action: Option<String>,
+    #[serde(default)]
+    pub remediation: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
 }
@@ -152,6 +158,23 @@ impl DeviceAction {
             Self::OpenGuide => "OpenGuide",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrerequisiteAction {
+    GetDocker,
+    OpenDocker,
+    GetTailscale,
+    TailscaleHelp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrerequisiteActionPayload {
+    pub action: PrerequisiteAction,
+    pub status: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -251,6 +274,20 @@ async fn run_device_action(
         .map_err(|_| UiError::new("device_action_failed", "Device action was interrupted."))?
 }
 
+#[tauri::command]
+async fn run_prerequisite_action(
+    action: PrerequisiteAction,
+) -> Result<PrerequisiteActionPayload, UiError> {
+    tauri::async_runtime::spawn_blocking(move || run_prerequisite_action_for(action))
+        .await
+        .map_err(|_| {
+            UiError::new(
+                "prerequisite_action_failed",
+                "Prerequisite action was interrupted.",
+            )
+        })?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -265,7 +302,8 @@ pub fn run() {
             validate_library_folder,
             configure_library,
             run_server_action,
-            run_device_action
+            run_device_action,
+            run_prerequisite_action
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
@@ -463,6 +501,171 @@ pub fn run_device_action_for_checkout(
     device_action_from_json(&json)
 }
 
+pub fn run_prerequisite_action_for(
+    action: PrerequisiteAction,
+) -> Result<PrerequisiteActionPayload, UiError> {
+    match action {
+        PrerequisiteAction::GetDocker
+        | PrerequisiteAction::GetTailscale
+        | PrerequisiteAction::TailscaleHelp => {
+            let url = prerequisite_action_url(action).ok_or_else(|| {
+                UiError::new(
+                    "prerequisite_action_unsupported",
+                    "This prerequisite action does not have installation guidance.",
+                )
+            })?;
+            open_url_in_default_browser(url)?;
+            Ok(PrerequisiteActionPayload {
+                action,
+                status: "opened".to_string(),
+                reason: prerequisite_action_success_reason(action).to_string(),
+            })
+        }
+        PrerequisiteAction::OpenDocker => {
+            let path = prerequisite_action_candidate_paths(
+                action,
+                env::var_os("LOCALAPPDATA").map(PathBuf::from).as_deref(),
+                env::var_os("ProgramFiles").map(PathBuf::from).as_deref(),
+            )
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .ok_or_else(|| {
+                UiError::new(
+                    "prerequisite_app_not_found",
+                    prerequisite_action_missing_app_reason(action),
+                )
+            })?;
+            launch_known_application(&path)?;
+            Ok(PrerequisiteActionPayload {
+                action,
+                status: "opened".to_string(),
+                reason: prerequisite_action_success_reason(action).to_string(),
+            })
+        }
+    }
+}
+
+pub fn prerequisite_action_url(action: PrerequisiteAction) -> Option<&'static str> {
+    match action {
+        PrerequisiteAction::GetDocker => Some(DOCKER_INSTALL_URL),
+        PrerequisiteAction::GetTailscale => Some(TAILSCALE_INSTALL_URL),
+        PrerequisiteAction::TailscaleHelp => Some(TAILSCALE_INSTALL_URL),
+        PrerequisiteAction::OpenDocker => None,
+    }
+}
+
+pub fn prerequisite_action_candidate_paths(
+    action: PrerequisiteAction,
+    local_app_data: Option<&Path>,
+    program_files: Option<&Path>,
+) -> Vec<PathBuf> {
+    match action {
+        PrerequisiteAction::OpenDocker => {
+            docker_desktop_candidate_paths(local_app_data, program_files)
+        }
+        PrerequisiteAction::GetDocker
+        | PrerequisiteAction::GetTailscale
+        | PrerequisiteAction::TailscaleHelp => Vec::new(),
+    }
+}
+
+pub fn docker_desktop_candidate_paths(
+    local_app_data: Option<&Path>,
+    program_files: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(root) = local_app_data {
+        paths.push(
+            root.join("Programs")
+                .join("DockerDesktop")
+                .join("Docker Desktop.exe"),
+        );
+    }
+    if let Some(root) = program_files {
+        paths.push(
+            root.join("Docker")
+                .join("Docker")
+                .join("Docker Desktop.exe"),
+        );
+    }
+    paths
+}
+
+fn prerequisite_action_success_reason(action: PrerequisiteAction) -> &'static str {
+    match action {
+        PrerequisiteAction::GetDocker => {
+            "Opened Docker Desktop installation guidance. Complete that step, then use Refresh checks."
+        }
+        PrerequisiteAction::OpenDocker => {
+            "Opened Docker Desktop. Wait until it finishes starting, then use Refresh checks."
+        }
+        PrerequisiteAction::GetTailscale => {
+            "Opened Tailscale installation guidance. Complete that step, then use Refresh checks."
+        }
+        PrerequisiteAction::TailscaleHelp => {
+            "Opened Tailscale sign-in steps. Use the Tailscale notification-area icon to sign in or reconnect, then use Refresh checks."
+        }
+    }
+}
+
+fn prerequisite_action_missing_app_reason(action: PrerequisiteAction) -> &'static str {
+    match action {
+        PrerequisiteAction::OpenDocker => {
+            "Docker Desktop was not found in the supported Windows install locations."
+        }
+        PrerequisiteAction::GetDocker
+        | PrerequisiteAction::GetTailscale
+        | PrerequisiteAction::TailscaleHelp => {
+            "This prerequisite action does not launch a local application."
+        }
+    }
+}
+
+fn open_url_in_default_browser(url: &str) -> Result<(), UiError> {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler").arg(url);
+        spawn_no_window(
+            command,
+            "prerequisite_url_launch_failed",
+            "Could not open installation guidance",
+        )
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = url;
+        Err(UiError::new(
+            "prerequisite_action_unsupported",
+            "Opening prerequisite guidance is supported only by the Windows setup companion.",
+        ))
+    }
+}
+
+fn launch_known_application(path: &Path) -> Result<(), UiError> {
+    let command = Command::new(path);
+    spawn_no_window(
+        command,
+        "prerequisite_app_launch_failed",
+        "Could not open prerequisite application",
+    )
+}
+
+fn spawn_no_window(
+    mut command: Command,
+    launch_code: &str,
+    launch_message: &str,
+) -> Result<(), UiError> {
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| UiError::new(launch_code, format!("{launch_message}: {error}")))
+}
+
 fn run_doctor(root: &Path) -> Result<String, UiError> {
     let spec = build_doctor_command_spec(root);
     run_powershell_command(
@@ -486,7 +689,9 @@ fn run_powershell_command(
     invalid_output_message: &str,
 ) -> Result<String, UiError> {
     let mut command = Command::new(&spec.program);
-    command.args(&spec.args).current_dir(&spec.working_directory);
+    command
+        .args(&spec.args)
+        .current_dir(&spec.working_directory);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
 
@@ -696,6 +901,7 @@ fn row(key: &str, label: &str, check: &SetupCheck) -> SetupCheckRow {
         status: check.status.clone(),
         reason: check.reason.clone(),
         next_action: check.next_action.clone(),
+        remediation: check.remediation.clone(),
         url: check.url.clone(),
     }
 }
@@ -958,6 +1164,85 @@ mod tests {
     }
 
     #[test]
+    fn deserializes_only_allowed_prerequisite_actions() {
+        assert_eq!(
+            serde_json::from_str::<PrerequisiteAction>("\"get_docker\"").expect("get_docker"),
+            PrerequisiteAction::GetDocker
+        );
+        assert_eq!(
+            serde_json::from_str::<PrerequisiteAction>("\"open_docker\"").expect("open_docker"),
+            PrerequisiteAction::OpenDocker
+        );
+        assert_eq!(
+            serde_json::from_str::<PrerequisiteAction>("\"get_tailscale\"").expect("get_tailscale"),
+            PrerequisiteAction::GetTailscale
+        );
+        assert_eq!(
+            serde_json::from_str::<PrerequisiteAction>("\"tailscale_help\"")
+                .expect("tailscale_help"),
+            PrerequisiteAction::TailscaleHelp
+        );
+        assert!(serde_json::from_str::<PrerequisiteAction>("\"install_docker\"").is_err());
+        assert!(serde_json::from_str::<PrerequisiteAction>("\"open_tailscale\"").is_err());
+        assert!(serde_json::from_str::<PrerequisiteAction>(
+            "\"C:\\\\Windows\\\\System32\\\\calc.exe\""
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prerequisite_browser_actions_use_only_fixed_official_urls() {
+        assert_eq!(
+            prerequisite_action_url(PrerequisiteAction::GetDocker),
+            Some("https://docs.docker.com/desktop/setup/install/windows-install/")
+        );
+        assert_eq!(
+            prerequisite_action_url(PrerequisiteAction::GetTailscale),
+            Some("https://tailscale.com/docs/install/windows")
+        );
+        assert_eq!(
+            prerequisite_action_url(PrerequisiteAction::TailscaleHelp),
+            Some("https://tailscale.com/docs/install/windows")
+        );
+        assert_eq!(
+            prerequisite_action_url(PrerequisiteAction::OpenDocker),
+            None
+        );
+    }
+
+    #[test]
+    fn prerequisite_app_actions_consider_only_approved_docker_paths() {
+        let local_app_data = PathBuf::from(r"C:\Users\person\AppData\Local");
+        let program_files = PathBuf::from(r"C:\Program Files");
+
+        assert_eq!(
+            prerequisite_action_candidate_paths(
+                PrerequisiteAction::OpenDocker,
+                Some(&local_app_data),
+                Some(&program_files)
+            ),
+            vec![
+                PathBuf::from(
+                    r"C:\Users\person\AppData\Local\Programs\DockerDesktop\Docker Desktop.exe"
+                ),
+                PathBuf::from(r"C:\Program Files\Docker\Docker\Docker Desktop.exe"),
+            ]
+        );
+        assert!(prerequisite_action_candidate_paths(
+            PrerequisiteAction::GetDocker,
+            Some(&local_app_data),
+            Some(&program_files)
+        )
+        .is_empty());
+        assert!(prerequisite_action_candidate_paths(
+            PrerequisiteAction::TailscaleHelp,
+            Some(&local_app_data),
+            Some(&program_files)
+        )
+        .is_empty());
+    }
+
+    #[test]
     fn builds_device_action_command_specs() {
         let root = PathBuf::from(r"C:\Mobile Edition");
         let enable = build_device_action_command_spec(&root, DeviceAction::EnableHttps);
@@ -1122,6 +1407,51 @@ mod tests {
             payload.rows.last().and_then(|row| row.url.as_deref()),
             Some("https://desktop.example.ts.net")
         );
+    }
+
+    #[test]
+    fn parses_remediation_values_into_ordered_rows() {
+        let json = r#"{
+          "schema": "feedback.mobile-edition.setup-doctor.v1",
+          "generatedAt": "2026-09-02T08:00:00.0000000Z",
+          "overall": {
+            "status": "blocked",
+            "reason": "Prerequisites need action."
+          },
+          "checks": {
+            "repository": {"status": "ready", "reason": "Repository ready."},
+            "docker": {
+              "status": "unavailable",
+              "reason": "Docker missing.",
+              "nextAction": "Install Docker Desktop.",
+              "remediation": "get_docker"
+            },
+            "server": {"status": "needs_action", "reason": "Server not ready."},
+            "tailscale": {
+              "status": "needs_action",
+              "reason": "Tailscale needs sign-in.",
+              "remediation": "tailscale_help"
+            },
+            "privateHttps": {"status": "needs_action", "reason": "HTTPS not ready."}
+          }
+        }"#;
+
+        let payload = setup_status_from_json(json).expect("json with remediation");
+
+        assert_eq!(
+            payload.report.checks.docker.remediation.as_deref(),
+            Some("get_docker")
+        );
+        assert_eq!(
+            payload.report.checks.tailscale.remediation.as_deref(),
+            Some("tailscale_help")
+        );
+        assert_eq!(payload.rows[1].remediation.as_deref(), Some("get_docker"));
+        assert_eq!(
+            payload.rows[3].remediation.as_deref(),
+            Some("tailscale_help")
+        );
+        assert_eq!(payload.rows[4].remediation, None);
     }
 
     #[test]

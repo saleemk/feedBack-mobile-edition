@@ -47,9 +47,11 @@ let serverActionTone = '';
 let deviceActionRunning = false;
 let deviceActionMessage = '';
 let deviceActionTone = '';
+let prerequisiteActionRunning = false;
+let prerequisiteActionView = '';
 
 function setupActionRunning() {
-  return serverActionRunning || deviceActionRunning;
+  return serverActionRunning || deviceActionRunning || prerequisiteActionRunning;
 }
 
 function bridge() {
@@ -100,6 +102,12 @@ function serverActionProgressLabel(action) {
 
 function serverActionButtonLabel(action) {
   return action === 'restart' ? 'Restarting...' : 'Starting...';
+}
+
+function prerequisiteActionButtonLabel(action) {
+  return action === 'get_docker' || action === 'get_tailscale' || action === 'tailscale_help'
+    ? 'Opening guide...'
+    : 'Opening...';
 }
 
 function renderServerProgress() {
@@ -337,13 +345,18 @@ function renderServerState() {
   serverSummary.textContent = model.summary;
   serverChecksList.replaceChildren(...model.rows.map(renderRow));
   serverActionButton.dataset.action = model.action;
-  serverActionButton.textContent = serverActionRunning
+  serverActionButton.textContent = prerequisiteActionRunning && prerequisiteActionView === 'server'
+    ? prerequisiteActionButtonLabel(model.action)
+    : serverActionRunning
     ? serverActionButtonLabel(serverActionKind || model.action)
     : model.actionLabel;
   serverActionButton.disabled = setupActionRunning() || !model.canRun;
   renderServerProgress();
 
-  if (serverActionRunning) {
+  if (prerequisiteActionRunning && prerequisiteActionView === 'server') {
+    serverMessage.textContent = 'Opening the selected prerequisite helper. Complete that step, then refresh checks.';
+    serverMessage.className = 'library-message tone-attention';
+  } else if (serverActionRunning) {
     serverMessage.textContent = 'Running the approved server action now. This can take a few minutes.';
     serverMessage.className = 'library-message tone-attention';
   } else if (serverActionMessage) {
@@ -371,9 +384,62 @@ function setServerActionBusy(isBusy, action = '') {
   renderDevicesState();
 }
 
+function setPrerequisiteActionBusy(isBusy, view = '') {
+  prerequisiteActionRunning = isBusy;
+  prerequisiteActionView = isBusy ? view : '';
+  refreshButton.disabled = setupActionRunning();
+  for (const button of viewButtons) {
+    button.disabled = setupActionRunning();
+  }
+  setLibraryBusy(isBusy);
+  renderServerState();
+  renderDevicesState();
+}
+
+async function runPrerequisiteAction(action, view) {
+  if (prerequisiteActionRunning || serverActionRunning || deviceActionRunning) return;
+
+  const operation = ++actionSequence;
+  if (view === 'server') {
+    serverActionMessage = '';
+    serverActionTone = '';
+  } else {
+    deviceActionMessage = '';
+    deviceActionTone = '';
+  }
+  setPrerequisiteActionBusy(true, view);
+  try {
+    const result = await bridge()('run_prerequisite_action', { action });
+    if (operation !== actionSequence) return;
+    if (view === 'server') {
+      serverActionMessage = result.reason || 'Prerequisite helper opened. Complete that step, then use Refresh checks.';
+      serverActionTone = 'attention';
+    } else {
+      deviceActionMessage = result.reason || 'Prerequisite helper opened. Complete that step, then use Refresh checks.';
+      deviceActionTone = 'attention';
+    }
+  } catch (error) {
+    if (operation !== actionSequence) return;
+    if (view === 'server') {
+      serverActionMessage = error?.message || 'Prerequisite action failed.';
+      serverActionTone = 'error';
+    } else {
+      deviceActionMessage = error?.message || 'Prerequisite action failed.';
+      deviceActionTone = 'error';
+    }
+  } finally {
+    if (operation === actionSequence) setPrerequisiteActionBusy(false);
+  }
+}
+
 async function runServerAction() {
   const model = buildServerModel(latestStatusPayload);
-  if (!model.canRun || serverActionRunning) return;
+  if (!model.canRun || setupActionRunning()) return;
+  if (model.actionKind === 'prerequisite') {
+    await runPrerequisiteAction(model.action, 'server');
+    return;
+  }
+  if (model.actionKind !== 'server') return;
 
   const operation = ++actionSequence;
   serverActionMessage = '';
@@ -426,12 +492,17 @@ function renderDevicesState() {
   devicesUrl.textContent = model.url;
   devicesChecksList.replaceChildren(...model.rows.map(renderRow));
   devicesActionButton.dataset.action = model.action;
-  devicesActionButton.textContent = deviceActionRunning
+  devicesActionButton.textContent = prerequisiteActionRunning && prerequisiteActionView === 'devices'
+    ? prerequisiteActionButtonLabel(model.action)
+    : deviceActionRunning
     ? model.action === 'open_guide' ? 'Opening...' : 'Enabling...'
     : model.actionLabel;
   devicesActionButton.disabled = setupActionRunning() || !model.canRun;
 
-  if (deviceActionRunning) {
+  if (prerequisiteActionRunning && prerequisiteActionView === 'devices') {
+    devicesMessage.textContent = 'Opening the selected prerequisite helper. Complete that step, then refresh checks.';
+    devicesMessage.className = 'library-message tone-attention';
+  } else if (deviceActionRunning) {
     devicesMessage.textContent = model.action === 'open_guide'
       ? 'Creating and opening the local QR guide.'
       : 'Configuring private HTTPS with Tailscale Serve.';
@@ -458,7 +529,12 @@ function setDeviceActionBusy(isBusy) {
 
 async function runDeviceAction() {
   const model = buildDeviceModel(latestStatusPayload);
-  if (!model.canRun || deviceActionRunning) return;
+  if (!model.canRun || setupActionRunning()) return;
+  if (model.actionKind === 'prerequisite') {
+    await runPrerequisiteAction(model.action, 'devices');
+    return;
+  }
+  if (model.actionKind !== 'device') return;
 
   const operation = ++actionSequence;
   deviceActionMessage = '';

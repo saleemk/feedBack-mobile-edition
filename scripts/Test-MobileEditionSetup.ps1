@@ -12,6 +12,7 @@ param(
 # - checks.server: same-machine localhost /api/version health
 # - checks.tailscale: Tailscale CLI and local node state
 # - checks.privateHttps: validated Tailscale Serve HTTPS endpoint for this port
+# Checks may include optional remediation values for safe UI prerequisite actions.
 
 Set-StrictMode -Version 2.0
 
@@ -21,6 +22,8 @@ function New-MobileEditionCheck {
         [string]$Status,
         [string]$Reason,
         [string]$NextAction,
+        [ValidateSet('get_docker', 'open_docker', 'start_server', 'get_tailscale', 'tailscale_help')]
+        [string]$Remediation,
         [hashtable]$Details
     )
 
@@ -30,6 +33,9 @@ function New-MobileEditionCheck {
     }
     if ($NextAction) {
         $check.nextAction = $NextAction
+    }
+    if ($Remediation) {
+        $check.remediation = $Remediation
     }
     if ($Details) {
         foreach ($key in ($Details.Keys | Sort-Object)) {
@@ -340,17 +346,17 @@ function Get-MobileEditionDockerCheck {
         $docker = Get-Command docker -ErrorAction SilentlyContinue
     }
     if (-not $docker) {
-        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Docker CLI is not available.' -NextAction 'Install Docker Desktop, then reopen PowerShell.'
+        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Docker CLI is not available.' -NextAction 'Install Docker Desktop, then reopen PowerShell.' -Remediation 'get_docker'
     }
 
     $compose = Invoke-MobileEditionCommandWithRunner -CommandRunner $CommandRunner -FilePath $docker.Source -Arguments @('compose', 'version') -WorkingDirectory $RepositoryRoot
     if ($compose.exitCode -ne 0) {
-        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Docker Compose is not available through the Docker CLI.' -NextAction 'Install or update Docker Desktop with Docker Compose.'
+        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Docker Compose is not available through the Docker CLI.' -NextAction 'Install or update Docker Desktop with Docker Compose.' -Remediation 'get_docker'
     }
 
     $daemon = Invoke-MobileEditionCommandWithRunner -CommandRunner $CommandRunner -FilePath $docker.Source -Arguments @('info') -WorkingDirectory $RepositoryRoot
     if ($daemon.exitCode -ne 0) {
-        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Docker is installed, but the Docker daemon is not reachable.' -NextAction 'Start Docker Desktop, then rerun this doctor.'
+        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Docker is installed, but the Docker daemon is not reachable.' -NextAction 'Start Docker Desktop, then rerun this doctor.' -Remediation 'open_docker'
     }
 
     $config = Invoke-MobileEditionCommandWithRunner -CommandRunner $CommandRunner -FilePath $docker.Source -Arguments @('compose', '-f', $ComposeFile, 'config', '--quiet') -WorkingDirectory $RepositoryRoot
@@ -365,7 +371,7 @@ function Get-MobileEditionDockerCheck {
 
     $containerState = Get-MobileEditionContainerState -Text $ps.output
     if ($containerState -ne 'running') {
-        return New-MobileEditionCheck -Status 'needs_action' -Reason 'The Mobile Edition container is not running.' -NextAction 'Run: docker compose -f docker-compose.release.yml up --build' -Details @{
+        return New-MobileEditionCheck -Status 'needs_action' -Reason 'The Mobile Edition container is not running.' -NextAction 'Run: docker compose -f docker-compose.release.yml up --build' -Remediation 'start_server' -Details @{
             containerState = $containerState
         }
     }
@@ -410,7 +416,7 @@ function Get-MobileEditionTailscaleStatusFromJson {
 
     $json = ConvertFrom-MobileEditionJson -Text $Text
     if (-not $json) {
-        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Tailscale status returned malformed JSON.' -NextAction 'Open Tailscale and confirm it is running, then rerun this doctor.'
+        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Tailscale status returned malformed JSON.' -NextAction 'Use the Tailscale notification-area icon to sign in or reconnect, then rerun this doctor.' -Remediation 'tailscale_help'
     }
 
     $backendState = ''
@@ -429,20 +435,20 @@ function Get-MobileEditionTailscaleStatusFromJson {
                 online = $true
             }
         }
-        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Tailscale is signed in, but this node is offline.' -NextAction 'Open Tailscale and reconnect this device.' -Details @{
+        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Tailscale is signed in, but this node is offline.' -NextAction 'Use the Tailscale notification-area icon to reconnect this device.' -Remediation 'tailscale_help' -Details @{
             backendState = $backendState
             online = $false
         }
     }
 
     if ($backendState -match 'NeedsLogin|NoState|Stopped') {
-        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Tailscale is installed, but it is not signed in and running.' -NextAction 'Open Tailscale for Windows and sign in.' -Details @{
+        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Tailscale is installed, but it is not signed in and running.' -NextAction 'Use the Tailscale notification-area icon to sign in.' -Remediation 'tailscale_help' -Details @{
             backendState = $backendState
             online = $online
         }
     }
 
-    New-MobileEditionCheck -Status 'needs_action' -Reason 'Tailscale is installed, but its local state is not ready.' -NextAction 'Open Tailscale and confirm it is running and signed in.' -Details @{
+    New-MobileEditionCheck -Status 'needs_action' -Reason 'Tailscale is installed, but its local state is not ready.' -NextAction 'Use the Tailscale notification-area icon to sign in or reconnect, then rerun this doctor.' -Remediation 'tailscale_help' -Details @{
         backendState = $backendState
         online = $online
     }
@@ -461,12 +467,12 @@ function Get-MobileEditionTailscaleCheck {
         $tailscale = Get-Command tailscale -ErrorAction SilentlyContinue
     }
     if (-not $tailscale) {
-        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Tailscale CLI is not available.' -NextAction 'Install Tailscale for Windows and sign in.'
+        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Tailscale CLI is not available.' -NextAction 'Install Tailscale for Windows and sign in.' -Remediation 'get_tailscale'
     }
 
     $status = Invoke-MobileEditionCommandWithRunner -CommandRunner $CommandRunner -FilePath $tailscale.Source -Arguments @('status', '--json') -WorkingDirectory $RepositoryRoot
     if ($status.exitCode -ne 0) {
-        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Tailscale local status is not readable from this PowerShell session.' -NextAction 'Open Tailscale and sign in; if access is still denied, run from a PowerShell session with access to the Tailscale local API.'
+        return New-MobileEditionCheck -Status 'unavailable' -Reason 'Tailscale local status is not readable from this PowerShell session.' -NextAction 'Use the Tailscale notification-area icon to sign in or reconnect; if access is still denied, run from a PowerShell session with access to the Tailscale local API.' -Remediation 'tailscale_help'
     }
 
     Get-MobileEditionTailscaleStatusFromJson -Text $status.output
@@ -640,7 +646,7 @@ function Get-MobileEditionPrivateHttpsCheck {
     }
 
     if ($TailscaleCheck.status -ne 'ready') {
-        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Private mobile HTTPS cannot be checked until Tailscale is running and signed in.' -NextAction 'Open Tailscale for Windows and sign in.'
+        return New-MobileEditionCheck -Status 'needs_action' -Reason 'Private mobile HTTPS cannot be checked until Tailscale is running and signed in.' -NextAction 'Use the Tailscale notification-area icon to sign in or reconnect.'
     }
 
     $serve = Invoke-MobileEditionCommandWithRunner -CommandRunner $CommandRunner -FilePath $tailscale.Source -Arguments @('serve', 'status', '--json') -WorkingDirectory $RepositoryRoot

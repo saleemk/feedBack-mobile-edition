@@ -44,6 +44,7 @@ function rowsFromReport(report) {
       status: check.status || 'unknown',
       reason: check.reason || 'No status details returned.',
       nextAction: check.nextAction || '',
+      remediation: check.remediation || '',
       url: check.url || '',
     };
   });
@@ -207,6 +208,7 @@ export function buildRenderModel(payload) {
       tone: toneForStatus(row.status),
       reason: row.reason || 'No status details returned.',
       nextAction: row.nextAction || '',
+      remediation: row.remediation || '',
       url: row.url || '',
     })),
   };
@@ -220,24 +222,55 @@ export function buildServerModel(payload) {
   const server = rowsByKey.get('server') || {};
   const serverReady = server.status === 'ready';
   const serverOwnershipConflict = repository.status === 'ready' && serverReady && docker.status !== 'ready';
-  const action = serverReady ? 'restart' : 'start';
+  const dockerRemediation = docker.remediation || '';
+  const prerequisiteLabels = {
+    get_docker: 'Get Docker Desktop',
+    open_docker: 'Open Docker Desktop',
+  };
+  const hasDockerPrerequisiteAction = Boolean(prerequisiteLabels[dockerRemediation]);
+  const canStartServer = docker.status === 'ready' || dockerRemediation === 'start_server';
+  const actionKind = serverOwnershipConflict
+    ? 'none'
+    : hasDockerPrerequisiteAction
+      ? 'prerequisite'
+      : canStartServer
+        ? 'server'
+        : 'none';
+  const action = actionKind === 'prerequisite'
+    ? dockerRemediation
+    : actionKind === 'server'
+      ? serverReady ? 'restart' : 'start'
+      : 'none';
 
   let disabledReason = '';
   if (repository.status !== 'ready') {
     disabledReason = 'Finish library configuration before starting the server.';
   } else if (serverOwnershipConflict) {
     disabledReason = 'A server is responding, but this checkout\'s Docker/Compose service is not ready. Resolve the port or service ownership conflict before controlling the server here.';
-  } else if (docker.status === 'unavailable') {
+  } else if (docker.status === 'unavailable' && !hasDockerPrerequisiteAction) {
     disabledReason = docker.reason || 'Docker is unavailable.';
+  } else if (actionKind === 'none') {
+    disabledReason = docker.status === 'ready'
+      ? server.reason || 'No local server status returned.'
+      : docker.reason || 'Docker is not ready yet.';
   }
 
-  const actionHint = serverReady
+  const actionHint = actionKind === 'prerequisite'
+    ? docker.reason || 'Complete this prerequisite, then refresh checks.'
+    : serverReady
     ? 'Restart only the Mobile Edition web service.'
     : 'Start the Mobile Edition release stack. The first build may take a few minutes.';
 
   return {
-    action: serverOwnershipConflict ? 'none' : action,
-    actionLabel: serverOwnershipConflict ? 'Resolve conflict' : serverReady ? 'Restart server' : 'Start server',
+    action,
+    actionKind,
+    actionLabel: serverOwnershipConflict
+      ? 'Resolve conflict'
+      : actionKind === 'prerequisite'
+        ? prerequisiteLabels[dockerRemediation]
+        : actionKind === 'server'
+          ? serverReady ? 'Restart server' : 'Start server'
+          : 'Review Docker guidance',
     canRun: !disabledReason,
     disabledReason,
     actionHint: serverOwnershipConflict ? disabledReason : actionHint,
@@ -256,19 +289,36 @@ export function buildDeviceModel(payload) {
   const tailscale = rowsByKey.get('tailscale') || {};
   const privateHttps = rowsByKey.get('privateHttps') || {};
   const privateHttpsReady = privateHttps.status === 'ready' && Boolean(privateHttps.url);
+  const tailscaleRemediation = tailscale.remediation || '';
+  const prerequisiteLabels = {
+    get_tailscale: 'Get Tailscale',
+    tailscale_help: 'Tailscale sign-in steps',
+  };
+  const hasTailscalePrerequisiteAction = Boolean(prerequisiteLabels[tailscaleRemediation]);
   const canEnablePrivateHttps = server.status === 'ready'
     && tailscale.status === 'ready'
     && privateHttpsCanBeEnabled(privateHttps);
-  const action = privateHttpsReady ? 'open_guide' : canEnablePrivateHttps ? 'enable_https' : 'none';
+  const actionKind = privateHttpsReady || canEnablePrivateHttps
+    ? 'device'
+    : server.status === 'ready' && hasTailscalePrerequisiteAction
+      ? 'prerequisite'
+      : 'none';
+  const action = actionKind === 'prerequisite'
+    ? tailscaleRemediation
+    : privateHttpsReady
+      ? 'open_guide'
+      : canEnablePrivateHttps
+        ? 'enable_https'
+        : 'none';
 
   let disabledReason = '';
   if (server.status !== 'ready') {
     disabledReason = server.reason || 'Start the local server before connecting devices.';
-  } else if (tailscale.status !== 'ready') {
+  } else if (tailscale.status !== 'ready' && !hasTailscalePrerequisiteAction) {
     disabledReason = tailscale.reason || 'Tailscale must be ready before private HTTPS can be configured.';
   } else if (privateHttps.status === 'ready' && !privateHttps.url) {
     disabledReason = 'Private HTTPS is ready, but the setup doctor did not return a URL.';
-  } else if (!privateHttpsReady && !canEnablePrivateHttps) {
+  } else if (actionKind === 'none' && !privateHttpsReady && !canEnablePrivateHttps) {
     disabledReason = privateHttps.reason || 'Private HTTPS status is unknown. Refresh checks before configuring device access.';
   }
 
@@ -276,14 +326,19 @@ export function buildDeviceModel(payload) {
     ? 'Create and open the local phone/tablet QR guide.'
     : canEnablePrivateHttps
       ? 'Enable the existing guarded Tailscale Serve HTTPS path for this configured port.'
+      : actionKind === 'prerequisite'
+        ? tailscale.reason || 'Complete this prerequisite, then refresh checks.'
       : disabledReason;
 
   return {
     action,
+    actionKind,
     actionLabel: privateHttpsReady
       ? 'Open device guide'
       : canEnablePrivateHttps
         ? 'Enable private HTTPS'
+        : actionKind === 'prerequisite'
+          ? prerequisiteLabels[tailscaleRemediation]
         : 'Private HTTPS unavailable',
     canRun: !disabledReason,
     disabledReason,
