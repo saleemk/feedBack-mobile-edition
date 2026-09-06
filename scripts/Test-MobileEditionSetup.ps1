@@ -102,6 +102,107 @@ function Invoke-MobileEditionCommandWithRunner {
     Invoke-MobileEditionCommand -FilePath $FilePath -Arguments $Arguments -WorkingDirectory $WorkingDirectory
 }
 
+function New-MobileEditionCommandReference {
+    param([string]$Source)
+
+    [pscustomobject]@{
+        Source = $Source
+    }
+}
+
+function Get-MobileEditionDockerFallbackPaths {
+    param(
+        [string]$LocalAppData = $env:LOCALAPPDATA,
+        [string]$ProgramFiles = $env:ProgramFiles
+    )
+
+    $paths = @()
+    if ($LocalAppData) {
+        $paths += (Join-Path -Path $LocalAppData -ChildPath 'Programs\DockerDesktop\resources\bin\docker.exe')
+    }
+    if ($ProgramFiles) {
+        $paths += (Join-Path -Path $ProgramFiles -ChildPath 'Docker\Docker\resources\bin\docker.exe')
+    }
+    $paths
+}
+
+function Get-MobileEditionTailscaleFallbackPaths {
+    param([string]$ProgramFiles = $env:ProgramFiles)
+
+    $paths = @()
+    if ($ProgramFiles) {
+        $paths += (Join-Path -Path $ProgramFiles -ChildPath 'Tailscale\tailscale.exe')
+    }
+    $paths
+}
+
+function Resolve-MobileEditionCommand {
+    param(
+        [string]$Name,
+        [string[]]$FallbackPaths,
+        [object]$ProvidedCommand,
+        [scriptblock]$CommandLookup,
+        [switch]$SkipDiscovery
+    )
+
+    if ($ProvidedCommand) {
+        return $ProvidedCommand
+    }
+    if ($SkipDiscovery) {
+        return $null
+    }
+
+    $command = $null
+    if ($CommandLookup) {
+        $command = & $CommandLookup -Name $Name
+    } else {
+        $command = Get-Command $Name -ErrorAction SilentlyContinue
+    }
+    if ($command) {
+        return $command
+    }
+
+    foreach ($path in $FallbackPaths) {
+        if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return New-MobileEditionCommandReference -Source ([System.IO.Path]::GetFullPath($path))
+        }
+    }
+    $null
+}
+
+function Resolve-MobileEditionDockerCommand {
+    param(
+        [object]$DockerCommand,
+        [switch]$SkipDockerDiscovery,
+        [string]$LocalAppData = $env:LOCALAPPDATA,
+        [string]$ProgramFiles = $env:ProgramFiles,
+        [scriptblock]$CommandLookup
+    )
+
+    Resolve-MobileEditionCommand `
+        -Name 'docker' `
+        -FallbackPaths (Get-MobileEditionDockerFallbackPaths -LocalAppData $LocalAppData -ProgramFiles $ProgramFiles) `
+        -ProvidedCommand $DockerCommand `
+        -CommandLookup $CommandLookup `
+        -SkipDiscovery:$SkipDockerDiscovery
+}
+
+function Resolve-MobileEditionTailscaleCommand {
+    param(
+        [object]$TailscaleCommand,
+        [switch]$SkipTailscaleDiscovery,
+        [string]$ProgramFiles = $env:ProgramFiles,
+        [scriptblock]$CommandLookup
+    )
+
+    Resolve-MobileEditionCommand `
+        -Name 'tailscale' `
+        -FallbackPaths (Get-MobileEditionTailscaleFallbackPaths -ProgramFiles $ProgramFiles) `
+        -ProvidedCommand $TailscaleCommand `
+        -CommandLookup $CommandLookup `
+        -SkipDiscovery:$SkipTailscaleDiscovery
+}
+
 function Parse-MobileEditionEnvContent {
     param([string[]]$Content)
 
@@ -341,10 +442,7 @@ function Get-MobileEditionDockerCheck {
         [switch]$SkipDockerDiscovery
     )
 
-    $docker = $DockerCommand
-    if (-not $docker -and -not $SkipDockerDiscovery) {
-        $docker = Get-Command docker -ErrorAction SilentlyContinue
-    }
+    $docker = Resolve-MobileEditionDockerCommand -DockerCommand $DockerCommand -SkipDockerDiscovery:$SkipDockerDiscovery
     if (-not $docker) {
         return New-MobileEditionCheck -Status 'unavailable' -Reason 'Docker CLI is not available.' -NextAction 'Install Docker Desktop, then reopen PowerShell.' -Remediation 'get_docker'
     }
@@ -462,10 +560,7 @@ function Get-MobileEditionTailscaleCheck {
         [switch]$SkipTailscaleDiscovery
     )
 
-    $tailscale = $TailscaleCommand
-    if (-not $tailscale -and -not $SkipTailscaleDiscovery) {
-        $tailscale = Get-Command tailscale -ErrorAction SilentlyContinue
-    }
+    $tailscale = Resolve-MobileEditionTailscaleCommand -TailscaleCommand $TailscaleCommand -SkipTailscaleDiscovery:$SkipTailscaleDiscovery
     if (-not $tailscale) {
         return New-MobileEditionCheck -Status 'unavailable' -Reason 'Tailscale CLI is not available.' -NextAction 'Install Tailscale for Windows and sign in.' -Remediation 'get_tailscale'
     }
@@ -637,10 +732,7 @@ function Get-MobileEditionPrivateHttpsCheck {
         return New-MobileEditionCheck -Status 'needs_action' -Reason 'Private mobile HTTPS cannot be checked until FEEDBACK_PORT is valid.' -NextAction 'Edit .env and set FEEDBACK_PORT to a number from 1 to 65535.'
     }
 
-    $tailscale = $TailscaleCommand
-    if (-not $tailscale -and -not $SkipTailscaleDiscovery) {
-        $tailscale = Get-Command tailscale -ErrorAction SilentlyContinue
-    }
+    $tailscale = Resolve-MobileEditionTailscaleCommand -TailscaleCommand $TailscaleCommand -SkipTailscaleDiscovery:$SkipTailscaleDiscovery
     if (-not $tailscale) {
         return New-MobileEditionCheck -Status 'needs_action' -Reason 'Private mobile HTTPS cannot be checked because Tailscale is not installed.' -NextAction 'Install Tailscale for Windows and sign in.'
     }
@@ -742,10 +834,12 @@ function Get-MobileEditionSetupReport {
     $settings = Resolve-MobileEditionSettings -RepositoryRoot $RepositoryRoot -EnvValues $envResult.values
 
     $repositoryCheck = Get-MobileEditionRepositoryCheck -RepositoryRoot $RepositoryRoot -EnvResult $envResult -Settings $settings
-    $dockerCheck = Get-MobileEditionDockerCheck -RepositoryRoot $RepositoryRoot -ComposeFile $composeFile
+    $dockerCommand = Resolve-MobileEditionDockerCommand
+    $tailscaleCommand = Resolve-MobileEditionTailscaleCommand
+    $dockerCheck = Get-MobileEditionDockerCheck -RepositoryRoot $RepositoryRoot -ComposeFile $composeFile -DockerCommand $dockerCommand -SkipDockerDiscovery
     $serverCheck = Get-MobileEditionServerCheck -Port $settings.feedbackPort
-    $tailscaleCheck = Get-MobileEditionTailscaleCheck -RepositoryRoot $RepositoryRoot
-    $privateHttpsCheck = Get-MobileEditionPrivateHttpsCheck -RepositoryRoot $RepositoryRoot -Port $settings.feedbackPort -TailscaleCheck $tailscaleCheck
+    $tailscaleCheck = Get-MobileEditionTailscaleCheck -RepositoryRoot $RepositoryRoot -TailscaleCommand $tailscaleCommand -SkipTailscaleDiscovery
+    $privateHttpsCheck = Get-MobileEditionPrivateHttpsCheck -RepositoryRoot $RepositoryRoot -Port $settings.feedbackPort -TailscaleCheck $tailscaleCheck -TailscaleCommand $tailscaleCommand -SkipTailscaleDiscovery
 
     New-MobileEditionReport -RepositoryCheck $repositoryCheck -DockerCheck $dockerCheck -ServerCheck $serverCheck -TailscaleCheck $tailscaleCheck -PrivateHttpsCheck $privateHttpsCheck
 }

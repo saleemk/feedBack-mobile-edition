@@ -1,4 +1,15 @@
 import { buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
+import {
+  PREREQUISITE_WAIT_INTERVAL_MS,
+  buildPrerequisiteCompleteMessage,
+  buildPrerequisiteTimeoutMessage,
+  buildPrerequisiteWaitMessage,
+  canStartPrerequisitePoll,
+  createPrerequisiteWait,
+  hasPrerequisiteWaitTimedOut,
+  shouldStartPrerequisiteWait,
+  shouldCompletePrerequisiteWait,
+} from './wait-policy.js';
 
 const refreshButton = document.querySelector('#refresh');
 const statusBand = document.querySelector('#status-band');
@@ -49,6 +60,8 @@ let deviceActionMessage = '';
 let deviceActionTone = '';
 let prerequisiteActionRunning = false;
 let prerequisiteActionView = '';
+let prerequisiteWait = null;
+let prerequisiteWaitTimer = 0;
 
 function setupActionRunning() {
   return serverActionRunning || deviceActionRunning || prerequisiteActionRunning;
@@ -87,6 +100,29 @@ function clearActionMessages() {
   serverActionTone = '';
   deviceActionMessage = '';
   deviceActionTone = '';
+}
+
+function setActionMessage(view, message, tone = 'attention') {
+  if (view === 'server') {
+    serverActionMessage = message;
+    serverActionTone = tone;
+  } else if (view === 'devices') {
+    deviceActionMessage = message;
+    deviceActionTone = tone;
+  }
+}
+
+function modelForView(view, payload = latestStatusPayload) {
+  if (view === 'server') return buildServerModel(payload);
+  if (view === 'devices') return buildDeviceModel(payload);
+  return null;
+}
+
+function isWatchedPrerequisite(view, model) {
+  return Boolean(prerequisiteWait)
+    && prerequisiteWait.view === view
+    && model?.actionKind === 'prerequisite'
+    && model.action === prerequisiteWait.action;
 }
 
 function formatElapsedTime(milliseconds) {
@@ -136,6 +172,88 @@ function stopServerProgress() {
   serverActionKind = '';
   serverActionStartedAt = 0;
   renderServerProgress();
+}
+
+function clearPrerequisiteWait() {
+  window.clearTimeout(prerequisiteWaitTimer);
+  prerequisiteWaitTimer = 0;
+  prerequisiteWait = null;
+}
+
+function cancelPrerequisiteWait() {
+  if (!prerequisiteWait) return;
+  clearPrerequisiteWait();
+  renderServerState();
+  renderDevicesState();
+}
+
+function finishPrerequisiteWait(status, model = null) {
+  const wait = prerequisiteWait;
+  if (!wait) return;
+  clearPrerequisiteWait();
+  refreshButton.disabled = setupActionRunning();
+  refreshButton.textContent = 'Refresh checks';
+  if (status === 'complete') {
+    setActionMessage(wait.view, buildPrerequisiteCompleteMessage(wait, model), 'attention');
+  } else if (status === 'timeout') {
+    setActionMessage(wait.view, buildPrerequisiteTimeoutMessage(wait), 'attention');
+  }
+  renderServerState();
+  renderDevicesState();
+}
+
+function schedulePrerequisitePoll(delay = PREREQUISITE_WAIT_INTERVAL_MS) {
+  window.clearTimeout(prerequisiteWaitTimer);
+  if (!prerequisiteWait) return;
+  prerequisiteWaitTimer = window.setTimeout(() => {
+    void pollPrerequisiteWait();
+  }, delay);
+}
+
+async function pollPrerequisiteWait() {
+  const wait = prerequisiteWait;
+  if (!canStartPrerequisitePoll(wait)) return;
+
+  wait.pollInFlight = true;
+  refreshButton.disabled = true;
+  refreshButton.textContent = 'Checking...';
+  renderServerState();
+  renderDevicesState();
+  try {
+    const payload = await bridge()('get_setup_status');
+    if (prerequisiteWait !== wait) return;
+    wait.lastError = '';
+    renderStatus(payload, { route: false, clearMessages: false });
+    const currentModel = modelForView(wait.view, payload);
+    if (shouldCompletePrerequisiteWait(wait, currentModel)) {
+      finishPrerequisiteWait('complete', currentModel);
+      return;
+    }
+  } catch (error) {
+    if (prerequisiteWait !== wait) return;
+    wait.lastError = error?.message || 'Setup doctor check failed.';
+  } finally {
+    if (prerequisiteWait === wait) {
+      wait.pollInFlight = false;
+      refreshButton.disabled = false;
+      refreshButton.textContent = 'Refresh checks';
+      if (hasPrerequisiteWaitTimedOut(wait)) {
+        finishPrerequisiteWait('timeout');
+      } else {
+        renderServerState();
+        renderDevicesState();
+        schedulePrerequisitePoll();
+      }
+    }
+  }
+}
+
+function startPrerequisiteWait(view, action, label) {
+  clearPrerequisiteWait();
+  prerequisiteWait = createPrerequisiteWait({ view, action, label });
+  renderServerState();
+  renderDevicesState();
+  schedulePrerequisitePoll();
 }
 
 function renderStatus(payload, options = {}) {
@@ -350,10 +468,13 @@ function renderServerState() {
     : serverActionRunning
     ? serverActionButtonLabel(serverActionKind || model.action)
     : model.actionLabel;
-  serverActionButton.disabled = setupActionRunning() || !model.canRun;
+  serverActionButton.disabled = setupActionRunning() || !model.canRun || isWatchedPrerequisite('server', model);
   renderServerProgress();
 
-  if (prerequisiteActionRunning && prerequisiteActionView === 'server') {
+  if (prerequisiteWait?.view === 'server') {
+    serverMessage.textContent = buildPrerequisiteWaitMessage(prerequisiteWait);
+    serverMessage.className = 'library-message tone-attention';
+  } else if (prerequisiteActionRunning && prerequisiteActionView === 'server') {
     serverMessage.textContent = 'Opening the selected prerequisite helper. Complete that step, then refresh checks.';
     serverMessage.className = 'library-message tone-attention';
   } else if (serverActionRunning) {
@@ -400,6 +521,9 @@ async function runPrerequisiteAction(action, view) {
   if (prerequisiteActionRunning || serverActionRunning || deviceActionRunning) return;
 
   const operation = ++actionSequence;
+  cancelPrerequisiteWait();
+  const model = modelForView(view);
+  const label = model?.actionLabel || 'prerequisite';
   if (view === 'server') {
     serverActionMessage = '';
     serverActionTone = '';
@@ -418,6 +542,9 @@ async function runPrerequisiteAction(action, view) {
       deviceActionMessage = result.reason || 'Prerequisite helper opened. Complete that step, then use Refresh checks.';
       deviceActionTone = 'attention';
     }
+    if (shouldStartPrerequisiteWait(result)) {
+      startPrerequisiteWait(view, action, label);
+    }
   } catch (error) {
     if (operation !== actionSequence) return;
     if (view === 'server') {
@@ -435,11 +562,13 @@ async function runPrerequisiteAction(action, view) {
 async function runServerAction() {
   const model = buildServerModel(latestStatusPayload);
   if (!model.canRun || setupActionRunning()) return;
+  if (isWatchedPrerequisite('server', model)) return;
   if (model.actionKind === 'prerequisite') {
     await runPrerequisiteAction(model.action, 'server');
     return;
   }
   if (model.actionKind !== 'server') return;
+  cancelPrerequisiteWait();
 
   const operation = ++actionSequence;
   serverActionMessage = '';
@@ -497,9 +626,12 @@ function renderDevicesState() {
     : deviceActionRunning
     ? model.action === 'open_guide' ? 'Opening...' : 'Enabling...'
     : model.actionLabel;
-  devicesActionButton.disabled = setupActionRunning() || !model.canRun;
+  devicesActionButton.disabled = setupActionRunning() || !model.canRun || isWatchedPrerequisite('devices', model);
 
-  if (prerequisiteActionRunning && prerequisiteActionView === 'devices') {
+  if (prerequisiteWait?.view === 'devices') {
+    devicesMessage.textContent = buildPrerequisiteWaitMessage(prerequisiteWait);
+    devicesMessage.className = 'library-message tone-attention';
+  } else if (prerequisiteActionRunning && prerequisiteActionView === 'devices') {
     devicesMessage.textContent = 'Opening the selected prerequisite helper. Complete that step, then refresh checks.';
     devicesMessage.className = 'library-message tone-attention';
   } else if (deviceActionRunning) {
@@ -530,11 +662,13 @@ function setDeviceActionBusy(isBusy) {
 async function runDeviceAction() {
   const model = buildDeviceModel(latestStatusPayload);
   if (!model.canRun || setupActionRunning()) return;
+  if (isWatchedPrerequisite('devices', model)) return;
   if (model.actionKind === 'prerequisite') {
     await runPrerequisiteAction(model.action, 'devices');
     return;
   }
   if (model.actionKind !== 'device') return;
+  cancelPrerequisiteWait();
 
   const operation = ++actionSequence;
   deviceActionMessage = '';
@@ -563,7 +697,13 @@ async function runDeviceAction() {
   }
 }
 
-refreshButton.addEventListener('click', () => refreshChecks({ route: !initialWorkflowRouteApplied, clearMessages: true }));
+refreshButton.addEventListener('click', () => {
+  if (prerequisiteWait) {
+    void pollPrerequisiteWait();
+  } else {
+    void refreshChecks({ route: !initialWorkflowRouteApplied, clearMessages: true });
+  }
+});
 for (const button of viewButtons) {
   button.addEventListener('click', () => setView(button.dataset.view));
 }
@@ -571,4 +711,5 @@ browseLibraryButton.addEventListener('click', chooseLibrary);
 applyLibraryButton.addEventListener('click', applyLibrary);
 serverActionButton.addEventListener('click', runServerAction);
 devicesActionButton.addEventListener('click', runDeviceAction);
+window.addEventListener('beforeunload', clearPrerequisiteWait);
 void refreshChecks({ route: true, clearMessages: true });

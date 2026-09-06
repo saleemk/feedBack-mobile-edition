@@ -35,6 +35,25 @@ function New-TestCommand {
     }
 }
 
+function New-TestFile {
+    param([string]$Path)
+
+    $parent = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    Set-Content -LiteralPath $Path -Value ''
+}
+
+function Remove-TestDirectory {
+    param([string]$Path)
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $tempPath = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+    if ($fullPath.StartsWith($tempPath, [System.StringComparison]::OrdinalIgnoreCase) -and
+        (Test-Path -LiteralPath $fullPath)) {
+        Remove-Item -LiteralPath $fullPath -Recurse -Force
+    }
+}
+
 $repoRoot = 'C:\MobileEdition'
 
 $parsed = Parse-MobileEditionEnvContent -Content @(
@@ -193,6 +212,47 @@ $containerLines = @'
 {"Service": "web", "State": "exited"}
 '@
 Assert-Equal (Get-MobileEditionContainerState -Text $containerLines) 'exited' 'Compose JSON line output should parse container state.'
+
+$discoveryRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "feedback-mobile-edition-discovery-$PID"
+Remove-TestDirectory -Path $discoveryRoot
+try {
+    $localAppData = Join-Path -Path $discoveryRoot -ChildPath 'LocalAppData'
+    $programFiles = Join-Path -Path $discoveryRoot -ChildPath 'ProgramFiles'
+    $dockerUserPath = Join-Path -Path $localAppData -ChildPath 'Programs\DockerDesktop\resources\bin\docker.exe'
+    $dockerAllUsersPath = Join-Path -Path $programFiles -ChildPath 'Docker\Docker\resources\bin\docker.exe'
+    $tailscalePath = Join-Path -Path $programFiles -ChildPath 'Tailscale\tailscale.exe'
+    $unapprovedDockerPath = Join-Path -Path $localAppData -ChildPath 'Docker\docker.exe'
+    $missingLookup = { param($Name) $null }
+
+    New-TestFile -Path $dockerUserPath
+    $dockerUser = Resolve-MobileEditionDockerCommand -LocalAppData $localAppData -ProgramFiles $null -CommandLookup $missingLookup
+    Assert-Equal $dockerUser.Source ([System.IO.Path]::GetFullPath($dockerUserPath)) 'Docker should resolve from the approved per-user fallback.'
+
+    New-TestFile -Path $dockerAllUsersPath
+    $dockerAllUsers = Resolve-MobileEditionDockerCommand -LocalAppData $null -ProgramFiles $programFiles -CommandLookup $missingLookup
+    Assert-Equal $dockerAllUsers.Source ([System.IO.Path]::GetFullPath($dockerAllUsersPath)) 'Docker should resolve from the approved all-users fallback.'
+
+    New-TestFile -Path $tailscalePath
+    $tailscaleFallback = Resolve-MobileEditionTailscaleCommand -ProgramFiles $programFiles -CommandLookup $missingLookup
+    Assert-Equal $tailscaleFallback.Source ([System.IO.Path]::GetFullPath($tailscalePath)) 'Tailscale should resolve from the approved all-users fallback.'
+
+    $pathCommand = New-TestCommand -Source 'C:\PathPreferred\docker.exe'
+    $pathPreferred = Resolve-MobileEditionDockerCommand -LocalAppData $localAppData -ProgramFiles $programFiles -CommandLookup { param($Name) $pathCommand }
+    Assert-Equal $pathPreferred.Source 'C:\PathPreferred\docker.exe' 'PATH discovery should remain preferred over fallback paths.'
+
+    New-TestFile -Path $unapprovedDockerPath
+    $unapprovedOnly = Resolve-MobileEditionDockerCommand -LocalAppData $localAppData -ProgramFiles $null -CommandLookup $missingLookup
+    Assert-Equal $unapprovedOnly.Source ([System.IO.Path]::GetFullPath($dockerUserPath)) 'Approved fallback should still win when an unapproved path also exists.'
+
+    Remove-Item -LiteralPath $dockerUserPath -Force
+    $unapprovedOnly = Resolve-MobileEditionDockerCommand -LocalAppData $localAppData -ProgramFiles $null -CommandLookup $missingLookup
+    Assert-Equal $unapprovedOnly $null 'Unapproved fallback paths should not be considered.'
+
+    $skipDiscovery = Resolve-MobileEditionDockerCommand -LocalAppData $localAppData -ProgramFiles $programFiles -CommandLookup $missingLookup -SkipDockerDiscovery
+    Assert-Equal $skipDiscovery $null 'Skip-discovery should bypass both PATH and fallback probing.'
+} finally {
+    Remove-TestDirectory -Path $discoveryRoot
+}
 
 $missingDocker = Get-MobileEditionDockerCheck `
     -RepositoryRoot $repoRoot `
