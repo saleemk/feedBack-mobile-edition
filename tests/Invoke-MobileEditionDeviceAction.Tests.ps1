@@ -136,6 +136,23 @@ try {
 
 $repo = New-TempDeviceRepo -Port 8123
 try {
+    $serveCalled = $false
+    $serverOwnershipConflict = Invoke-MobileEditionDeviceAction `
+        -RepositoryRoot $repo.root `
+        -Action EnableHttps `
+        -DoctorRunner { param($RepositoryRoot) New-TestReport -Docker 'needs_action' -Server 'ready' -PrivateHttps 'needs_action' } `
+        -ServeRunner { $script:serveCalled = $true; throw 'Serve should not run during a current-checkout server ownership conflict.' }
+    Assert-Equal $serverOwnershipConflict.status 'conflict' 'EnableHttps should report conflict when localhost responds but this checkout Docker service is not ready.'
+    Assert-True (-not $serverOwnershipConflict.changed) 'EnableHttps conflict should not report mutation.'
+    Assert-True $serverOwnershipConflict.reason.Contains('Server conflict') 'EnableHttps conflict should direct the user to resolve the Server conflict.'
+    Assert-True $serverOwnershipConflict.reason.Contains('Docker/Compose service is not ready') 'EnableHttps conflict should explain the current-checkout Docker ownership gap.'
+    Assert-True (-not $serveCalled) 'EnableHttps should not call Serve during a current-checkout server ownership conflict.'
+} finally {
+    Remove-TempDeviceRepo -Root $repo.root
+}
+
+$repo = New-TempDeviceRepo -Port 8123
+try {
     $serveCalls = [System.Collections.ArrayList]::new()
     $doctorCalls = 0
     $enabled = Invoke-MobileEditionDeviceAction `
@@ -244,6 +261,26 @@ $guideBlocked = Invoke-MobileEditionDeviceAction `
 Assert-Equal $guideBlocked.status 'needs_action' 'OpenGuide should require private HTTPS readiness.'
 Assert-True (-not $guideCalled) 'OpenGuide should not call the guide helper without a validated URL.'
 
+$guideConflictCalled = $false
+$guideConflict = Invoke-MobileEditionDeviceAction `
+    -RepositoryRoot $repoRoot `
+    -Action OpenGuide `
+    -DoctorRunner {
+        param($RepositoryRoot)
+        New-TestReport `
+            -Docker 'needs_action' `
+            -Server 'ready' `
+            -PrivateHttps 'ready' `
+            -HttpsUrl 'https://desktop.example.ts.net' `
+            -PrivateReason 'Tailscale Serve exposes this Edition port over HTTPS.'
+    } `
+    -GuideRunner { $script:guideConflictCalled = $true; throw 'Guide should not run during a current-checkout server ownership conflict.' }
+Assert-Equal $guideConflict.status 'conflict' 'OpenGuide should report conflict when localhost/private HTTPS respond but this checkout Docker service is not ready.'
+Assert-True (-not $guideConflict.changed) 'OpenGuide conflict should not report completion.'
+Assert-True $guideConflict.reason.Contains('Server conflict') 'OpenGuide conflict should direct the user to resolve the Server conflict.'
+Assert-True $guideConflict.reason.Contains('Docker/Compose service is not ready') 'OpenGuide conflict should explain the current-checkout Docker ownership gap.'
+Assert-True (-not $guideConflictCalled) 'OpenGuide should not call the guide helper during a current-checkout server ownership conflict.'
+
 $guideCalls = [System.Collections.ArrayList]::new()
 $guideReady = Invoke-MobileEditionDeviceAction `
     -RepositoryRoot $repoRoot `
@@ -269,6 +306,52 @@ Assert-Equal $guideReady.path 'C:\Temp\feedback-mobile-edition-device-guide.html
 Assert-Equal $guideCalls.Count 1 'OpenGuide should call the guide helper once.'
 Assert-True $guideCalls[0].confirmed 'OpenGuide should pass fixed affirmative confirmation from the UI click.'
 
+$guideProgressReady = Invoke-MobileEditionDeviceAction `
+    -RepositoryRoot $repoRoot `
+    -Action OpenGuide `
+    -DoctorRunner { param($RepositoryRoot) New-TestReport -PrivateHttps 'ready' -HttpsUrl 'https://desktop.example.ts.net' } `
+    -GuideRunner {
+        param($RepositoryRoot, $Url, $CommandRunner, $ConfirmHandler, $BrowserLauncher, $GuidePath, $DockerCommand)
+        Write-Output 'Device guide opened: C:\Temp\feedback-mobile-edition-device-guide.html'
+        [pscustomobject]@{
+            status = 'ready'
+            reason = 'Device guide created and opened.'
+            path = 'C:\Temp\feedback-mobile-edition-device-guide.html'
+        }
+    }
+Assert-Equal (@($guideProgressReady).Count) 1 'OpenGuide should not leak guide progress strings as top-level output.'
+Assert-Equal $guideProgressReady.status 'ready' 'OpenGuide should preserve the final structured guide result after progress output.'
+Assert-True $guideProgressReady.changed 'OpenGuide should report changed when the final structured guide result is ready.'
+Assert-Equal $guideProgressReady.url 'https://desktop.example.ts.net' 'OpenGuide should retain the doctor-validated URL after progress output.'
+Assert-Equal $guideProgressReady.path 'C:\Temp\feedback-mobile-edition-device-guide.html' 'OpenGuide should retain the guide path after progress output.'
+
+$guideStringOnly = Invoke-MobileEditionDeviceAction `
+    -RepositoryRoot $repoRoot `
+    -Action OpenGuide `
+    -DoctorRunner { param($RepositoryRoot) New-TestReport -PrivateHttps 'ready' -HttpsUrl 'https://desktop.example.ts.net' } `
+    -GuideRunner {
+        param($RepositoryRoot, $Url, $CommandRunner, $ConfirmHandler, $BrowserLauncher, $GuidePath, $DockerCommand)
+        Write-Output 'Device guide opened: C:\Temp\feedback-mobile-edition-device-guide.html'
+    }
+Assert-Equal (@($guideStringOnly).Count) 1 'String-only guide output should still produce one device-action result.'
+Assert-Equal $guideStringOnly.status 'failed' 'String-only guide output should become a structured failed result.'
+Assert-True $guideStringOnly.reason.Contains('structured result') 'String-only guide output should explain the missing structured result.'
+
+$guideMalformed = Invoke-MobileEditionDeviceAction `
+    -RepositoryRoot $repoRoot `
+    -Action OpenGuide `
+    -DoctorRunner { param($RepositoryRoot) New-TestReport -PrivateHttps 'ready' -HttpsUrl 'https://desktop.example.ts.net' } `
+    -GuideRunner {
+        param($RepositoryRoot, $Url, $CommandRunner, $ConfirmHandler, $BrowserLauncher, $GuidePath, $DockerCommand)
+        [pscustomobject]@{
+            reason = 'Missing status.'
+            path = 'C:\Temp\feedback-mobile-edition-device-guide.html'
+        }
+    }
+Assert-Equal (@($guideMalformed).Count) 1 'Malformed guide output should still produce one device-action result.'
+Assert-Equal $guideMalformed.status 'failed' 'Malformed guide output should become a structured failed result.'
+Assert-True $guideMalformed.reason.Contains('unreadable result') 'Malformed guide output should explain the unreadable result.'
+
 $guideFailure = Invoke-MobileEditionDeviceAction `
     -RepositoryRoot $repoRoot `
     -Action OpenGuide `
@@ -285,11 +368,12 @@ Assert-Equal $guideFailure.status 'failed' 'OpenGuide should preserve guide help
 Assert-True (-not $guideFailure.changed) 'OpenGuide failure should not report completion.'
 Assert-True $guideFailure.reason.Contains('QR generation failed') 'OpenGuide failure should preserve the helper reason.'
 
-$json = $guideReady | ConvertTo-Json -Depth 10
+$json = $guideProgressReady | ConvertTo-Json -Depth 10
 $parsed = $json | ConvertFrom-Json
 Assert-Equal $parsed.action 'OpenGuide' 'JSON output should include the device action.'
 Assert-Equal $parsed.status 'ready' 'JSON output should include the device action status.'
 Assert-Equal $parsed.url 'https://desktop.example.ts.net' 'JSON output should include the doctor-validated private URL.'
+Assert-Equal $parsed.path 'C:\Temp\feedback-mobile-edition-device-guide.html' 'JSON output should include the generated guide path.'
 Assert-True ($parsed.report.schema -eq 'feedback.mobile-edition.setup-doctor.v1') 'JSON output should include the doctor report.'
 
 Write-Output 'Invoke-MobileEditionDeviceAction tests passed.'

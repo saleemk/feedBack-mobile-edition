@@ -24,6 +24,9 @@ const WORKFLOW_STAGES = Object.freeze({
   CHECK: 'check',
 });
 
+const SERVER_OWNERSHIP_CONFLICT_REASON = 'A server is responding, but this checkout\'s Docker/Compose service is not ready. Resolve the port or service ownership conflict before controlling the server here.';
+const DEVICE_SERVER_OWNERSHIP_CONFLICT_REASON = 'A server is responding, but this checkout\'s Docker/Compose service is not ready. Resolve the Server conflict before connecting devices.';
+
 function toneForStatus(status) {
   if (status === 'ready') return 'ready';
   if (status === 'needs_action' || status === 'local_ready_mobile_setup_remaining') return 'attention';
@@ -133,7 +136,7 @@ export function buildWorkflowModel(payload) {
       stage: WORKFLOW_STAGES.SERVER,
       view: WORKFLOW_STAGES.SERVER,
       label: 'Existing server conflict',
-      reason: 'A server is responding, but this checkout\'s Docker/Compose service is not ready. Resolve the port or service ownership conflict before controlling the server here.',
+      reason: SERVER_OWNERSHIP_CONFLICT_REASON,
       tone: 'error',
       state: 'server_conflict',
       complete: false,
@@ -246,7 +249,7 @@ export function buildServerModel(payload) {
   if (repository.status !== 'ready') {
     disabledReason = 'Finish library configuration before starting the server.';
   } else if (serverOwnershipConflict) {
-    disabledReason = 'A server is responding, but this checkout\'s Docker/Compose service is not ready. Resolve the port or service ownership conflict before controlling the server here.';
+    disabledReason = SERVER_OWNERSHIP_CONFLICT_REASON;
   } else if (docker.status === 'unavailable' && !hasDockerPrerequisiteAction) {
     disabledReason = docker.reason || 'Docker is unavailable.';
   } else if (actionKind === 'none') {
@@ -285,9 +288,12 @@ export function buildServerModel(payload) {
 export function buildDeviceModel(payload) {
   const model = buildRenderModel(payload);
   const rowsByKey = rowsByKeyFromModel(model);
+  const repository = rowsByKey.get('repository') || {};
+  const docker = rowsByKey.get('docker') || {};
   const server = rowsByKey.get('server') || {};
   const tailscale = rowsByKey.get('tailscale') || {};
   const privateHttps = rowsByKey.get('privateHttps') || {};
+  const serverOwnershipConflict = repository.status === 'ready' && server.status === 'ready' && docker.status !== 'ready';
   const privateHttpsReady = privateHttps.status === 'ready' && Boolean(privateHttps.url);
   const tailscaleRemediation = tailscale.remediation || '';
   const prerequisiteLabels = {
@@ -298,21 +304,27 @@ export function buildDeviceModel(payload) {
   const canEnablePrivateHttps = server.status === 'ready'
     && tailscale.status === 'ready'
     && privateHttpsCanBeEnabled(privateHttps);
-  const actionKind = privateHttpsReady || canEnablePrivateHttps
-    ? 'device'
-    : server.status === 'ready' && hasTailscalePrerequisiteAction
-      ? 'prerequisite'
-      : 'none';
+  const actionKind = serverOwnershipConflict
+    ? 'none'
+    : privateHttpsReady || canEnablePrivateHttps
+      ? 'device'
+      : server.status === 'ready' && hasTailscalePrerequisiteAction
+        ? 'prerequisite'
+        : 'none';
   const action = actionKind === 'prerequisite'
     ? tailscaleRemediation
-    : privateHttpsReady
+    : actionKind === 'device' && privateHttpsReady
       ? 'open_guide'
-      : canEnablePrivateHttps
+      : actionKind === 'device' && canEnablePrivateHttps
         ? 'enable_https'
         : 'none';
 
   let disabledReason = '';
-  if (server.status !== 'ready') {
+  if (repository.status !== 'ready') {
+    disabledReason = 'Finish library configuration before connecting devices.';
+  } else if (serverOwnershipConflict) {
+    disabledReason = DEVICE_SERVER_OWNERSHIP_CONFLICT_REASON;
+  } else if (server.status !== 'ready') {
     disabledReason = server.reason || 'Start the local server before connecting devices.';
   } else if (tailscale.status !== 'ready' && !hasTailscalePrerequisiteAction) {
     disabledReason = tailscale.reason || 'Tailscale must be ready before private HTTPS can be configured.';
@@ -333,25 +345,32 @@ export function buildDeviceModel(payload) {
   return {
     action,
     actionKind,
-    actionLabel: privateHttpsReady
-      ? 'Open device guide'
-      : canEnablePrivateHttps
-        ? 'Enable private HTTPS'
-        : actionKind === 'prerequisite'
-          ? prerequisiteLabels[tailscaleRemediation]
-        : 'Private HTTPS unavailable',
+    actionLabel: serverOwnershipConflict
+      ? 'Resolve Server conflict'
+      : privateHttpsReady
+        ? 'Open device guide'
+        : canEnablePrivateHttps
+          ? 'Enable private HTTPS'
+          : actionKind === 'prerequisite'
+            ? prerequisiteLabels[tailscaleRemediation]
+            : 'Private HTTPS unavailable',
     canRun: !disabledReason,
     disabledReason,
-    actionHint,
-    badgeLabel: privateHttpsReady ? 'Devices ready' : server.status === 'ready' ? 'Ready locally' : 'Devices need setup',
-    badgeTone: privateHttpsReady ? 'ready' : 'attention',
-    summary: privateHttpsReady
-      ? 'Private HTTPS is ready for phones and tablets.'
-      : server.status === 'ready' && tailscale.status !== 'ready'
-        ? 'Local Mobile Edition is ready. Private phone and tablet HTTPS still needs Tailscale.'
-      : privateHttps.reason || 'Private HTTPS is not ready yet.',
-    url: privateHttpsReady ? privateHttps.url : '',
-    rows: DEVICE_ROW_KEYS.map((key) => rowsByKey.get(key)).filter(Boolean),
+    actionHint: serverOwnershipConflict ? disabledReason : actionHint,
+    badgeLabel: serverOwnershipConflict ? 'Server conflict' : privateHttpsReady ? 'Devices ready' : server.status === 'ready' ? 'Ready locally' : 'Devices need setup',
+    badgeTone: serverOwnershipConflict ? 'error' : privateHttpsReady ? 'ready' : 'attention',
+    summary: serverOwnershipConflict
+      ? disabledReason
+      : privateHttpsReady
+        ? 'Private HTTPS is ready for phones and tablets.'
+        : server.status === 'ready' && tailscale.status !== 'ready'
+          ? 'Local Mobile Edition is ready. Private phone and tablet HTTPS still needs Tailscale.'
+          : privateHttps.reason || 'Private HTTPS is not ready yet.',
+    url: serverOwnershipConflict ? '' : privateHttpsReady ? privateHttps.url : '',
+    conflict: serverOwnershipConflict,
+    rows: (serverOwnershipConflict ? ['docker', ...DEVICE_ROW_KEYS] : DEVICE_ROW_KEYS)
+      .map((key) => rowsByKey.get(key))
+      .filter(Boolean),
   };
 }
 

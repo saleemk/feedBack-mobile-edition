@@ -232,6 +232,30 @@ test('buildDeviceModel chooses HTTPS enablement or guide opening from doctor tru
   assert.equal(ready.badgeLabel, 'Devices ready');
 });
 
+test('buildDeviceModel disables device actions for current-checkout server ownership conflicts', async () => {
+  const payload = clone(await fixture('ready'));
+  payload.checks.docker.status = 'needs_action';
+  payload.checks.docker.reason = 'This checkout Docker service is not ready.';
+  payload.checks.server.status = 'ready';
+  payload.checks.privateHttps.status = 'ready';
+  payload.checks.privateHttps.url = 'https://desktop.example.ts.net';
+  const model = buildDeviceModel(payload);
+
+  assert.equal(model.conflict, true);
+  assert.equal(model.action, 'none');
+  assert.equal(model.actionKind, 'none');
+  assert.equal(model.actionLabel, 'Resolve Server conflict');
+  assert.equal(model.canRun, false);
+  assert.equal(model.badgeLabel, 'Server conflict');
+  assert.equal(model.badgeTone, 'error');
+  assert.equal(model.url, '');
+  assert.equal(model.rows.map((row) => row.key).join(','), 'docker,server,tailscale,privateHttps');
+  assert.equal(model.rows.find((row) => row.key === 'docker').status, 'needs_action');
+  assert.match(model.disabledReason, /server is responding/i);
+  assert.match(model.disabledReason, /Docker\/Compose service is not ready/);
+  assert.match(model.summary, /Resolve the Server conflict/);
+});
+
 test('buildDeviceModel selects Tailscale prerequisite actions from remediation keys', async () => {
   const getTailscalePayload = clone(await fixture('ready'));
   getTailscalePayload.checks.tailscale.status = 'unavailable';

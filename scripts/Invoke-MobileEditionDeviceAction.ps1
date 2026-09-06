@@ -91,6 +91,90 @@ function Get-MobileEditionPrivateHttpsUrlFromReport {
     $null
 }
 
+function Get-MobileEditionDeviceGuideReadinessBlock {
+    param([object]$Report)
+
+    if ($Report.checks.repository.status -ne 'ready') {
+        return [pscustomobject]@{
+            status = 'needs_action'
+            reason = 'Repository configuration must be ready before opening the device guide.'
+        }
+    }
+
+    if ($Report.checks.docker.status -ne 'ready') {
+        if ($Report.checks.server.status -eq 'ready') {
+            return [pscustomobject]@{
+                status = 'conflict'
+                reason = 'A server is responding, but this checkout''s Docker/Compose service is not ready. Resolve the Server conflict before opening the device guide.'
+            }
+        }
+        return [pscustomobject]@{
+            status = 'needs_action'
+            reason = 'Docker/Compose for this checkout must be ready before opening the device guide.'
+        }
+    }
+
+    if ($Report.checks.server.status -ne 'ready') {
+        return [pscustomobject]@{
+            status = 'needs_action'
+            reason = 'The local Mobile Edition server must be ready before opening the device guide.'
+        }
+    }
+
+    if ($Report.checks.privateHttps.status -ne 'ready' -or -not (Get-MobileEditionPrivateHttpsUrlFromReport -Report $Report)) {
+        return [pscustomobject]@{
+            status = 'needs_action'
+            reason = 'A doctor-validated private HTTPS URL is required before opening the device guide.'
+        }
+    }
+
+    $null
+}
+
+function Select-MobileEditionDeviceGuideResult {
+    param([object[]]$Output)
+
+    $structuredResults = @(@($Output) | Where-Object { $_ -ne $null -and $_ -isnot [string] })
+    if ($structuredResults.Count -eq 0) {
+        return [pscustomobject]@{
+            status = 'failed'
+            reason = 'Device guide helper did not return a structured result. Refresh checks and try Open device guide again.'
+            path = $null
+        }
+    }
+
+    $guideResult = $structuredResults[$structuredResults.Count - 1]
+    $properties = $guideResult.PSObject.Properties
+    if (-not $properties['status'] -or -not $properties['reason']) {
+        return [pscustomobject]@{
+            status = 'failed'
+            reason = 'Device guide helper returned an unreadable result. Refresh checks and try Open device guide again.'
+            path = $null
+        }
+    }
+
+    $status = [string]$guideResult.status
+    $reason = [string]$guideResult.reason
+    $path = $null
+    if ($properties['path']) {
+        $path = [string]$guideResult.path
+    }
+
+    if (-not $status -or -not $reason -or ($status -eq 'ready' -and -not $path)) {
+        return [pscustomobject]@{
+            status = 'failed'
+            reason = 'Device guide helper returned an incomplete result. Refresh checks and try Open device guide again.'
+            path = $null
+        }
+    }
+
+    [pscustomobject]@{
+        status = $status
+        reason = $reason
+        path = $path
+    }
+}
+
 function Invoke-MobileEditionDeviceAction {
     param(
         [string]$RepositoryRoot,
@@ -114,6 +198,9 @@ function Invoke-MobileEditionDeviceAction {
         }
         if ($initialReport.checks.server.status -ne 'ready') {
             return New-MobileEditionDeviceActionResult -Action $Action -Status 'needs_action' -Changed $false -Reason 'The local Mobile Edition server must be ready before private HTTPS can be enabled.' -Report $initialReport
+        }
+        if ($initialReport.checks.docker.status -ne 'ready') {
+            return New-MobileEditionDeviceActionResult -Action $Action -Status 'conflict' -Changed $false -Reason 'A server is responding, but this checkout''s Docker/Compose service is not ready. Resolve the Server conflict before enabling private HTTPS.' -Report $initialReport
         }
         if ($initialReport.checks.tailscale.status -ne 'ready') {
             return New-MobileEditionDeviceActionResult -Action $Action -Status 'needs_action' -Changed $false -Reason 'Tailscale must be ready before private HTTPS can be enabled.' -Report $initialReport
@@ -155,17 +242,19 @@ function Invoke-MobileEditionDeviceAction {
         return New-MobileEditionDeviceActionResult -Action $Action -Status 'needs_action' -Changed ($serveResult.status -eq 'ready') -Reason "Private HTTPS is still not ready: $privateReason" -Report $finalReport
     }
 
-    $url = Get-MobileEditionPrivateHttpsUrlFromReport -Report $initialReport
-    if ($initialReport.checks.privateHttps.status -ne 'ready' -or -not $url) {
-        return New-MobileEditionDeviceActionResult -Action $Action -Status 'needs_action' -Changed $false -Reason 'A doctor-validated private HTTPS URL is required before opening the device guide.' -Report $initialReport
+    $guideBlock = Get-MobileEditionDeviceGuideReadinessBlock -Report $initialReport
+    if ($guideBlock) {
+        return New-MobileEditionDeviceActionResult -Action $Action -Status $guideBlock.status -Changed $false -Reason $guideBlock.reason -Report $initialReport
     }
 
+    $url = Get-MobileEditionPrivateHttpsUrlFromReport -Report $initialReport
     $confirmYes = { param($Prompt) $true }
-    $guideResult = if ($GuideRunner) {
+    $guideOutput = if ($GuideRunner) {
         & $GuideRunner -RepositoryRoot $RepositoryRoot -Url $url -CommandRunner $CommandRunner -ConfirmHandler $confirmYes -BrowserLauncher $BrowserLauncher -GuidePath $DeviceGuidePath -DockerCommand $DockerCommand
     } else {
         Invoke-MobileEditionDeviceGuide -RepositoryRoot $RepositoryRoot -Url $url -CommandRunner $CommandRunner -ConfirmHandler $confirmYes -BrowserLauncher $BrowserLauncher -GuidePath $DeviceGuidePath -DockerCommand $DockerCommand
     }
+    $guideResult = Select-MobileEditionDeviceGuideResult -Output $guideOutput
 
     New-MobileEditionDeviceActionResult -Action $Action -Status $guideResult.status -Changed ($guideResult.status -eq 'ready') -Reason $guideResult.reason -Report $initialReport -Url $url -Path $guideResult.path
 }
