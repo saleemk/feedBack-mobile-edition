@@ -480,6 +480,8 @@ async function chooseLibrary() {
 async function applyLibrary() {
   if (!selectedPathIsValid || !selectedPath) return;
   setLibraryBusy(true, 'apply');
+  libraryMessage.textContent = 'Saving this library and checking the next setup step...';
+  libraryMessage.className = 'library-message tone-attention';
   try {
     const result = await bridge()('configure_library', { path: selectedPath });
     renderLibraryState(result);
@@ -489,6 +491,8 @@ async function applyLibrary() {
       selectedPathIsValid = false;
       selectedLibrary.textContent = 'No new folder selected.';
       selectedLibrary.classList.add('is-muted');
+      libraryMessage.textContent = 'Library saved. Checking the server step...';
+      libraryMessage.className = 'library-message tone-attention';
       await refreshChecks({ route: true, clearMessages: true, preferredView: 'server' });
     }
   } catch (error) {
@@ -559,6 +563,7 @@ function setServerActionBusy(isBusy, action = '') {
     button.disabled = setupActionRunning();
   }
   setLibraryBusy(isBusy);
+  renderCheckActionState();
   renderServerState();
   renderDevicesState();
 }
@@ -571,6 +576,7 @@ function setPrerequisiteActionBusy(isBusy, view = '') {
     button.disabled = setupActionRunning();
   }
   setLibraryBusy(isBusy);
+  renderCheckActionState();
   renderServerState();
   renderDevicesState();
 }

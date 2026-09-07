@@ -10,6 +10,10 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function tick() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 function createClassList(element) {
   return {
     add(name) {
@@ -147,15 +151,34 @@ function createDocument() {
   };
 }
 
-async function importMainWithHarness({ statusPayload, deviceResult }) {
+async function importMainWithHarness({
+  statusPayload,
+  deviceResult,
+  serverResult,
+  libraryFolder = 'C:\\Music',
+  libraryValidation = { valid: true, path: 'C:\\Music', reason: 'Library folder is usable.' },
+  libraryResult = { valid: true, path: 'C:\\Music', reason: 'Library saved.' },
+  getStatus,
+}) {
   const document = createDocument();
   const calls = [];
   const invoke = async (command, args = {}) => {
     calls.push({ command, args });
-    if (command === 'get_setup_status') return clone(statusPayload);
+    if (command === 'get_setup_status') {
+      const result = getStatus ? await getStatus(args) : statusPayload;
+      return clone(result);
+    }
     if (command === 'run_device_action') return typeof deviceResult === 'function'
       ? deviceResult(args)
       : clone(deviceResult);
+    if (command === 'run_server_action') return typeof serverResult === 'function'
+      ? serverResult(args)
+      : clone(serverResult);
+    if (command === 'choose_library_folder') return libraryFolder;
+    if (command === 'validate_library_folder') return clone(libraryValidation);
+    if (command === 'configure_library') return typeof libraryResult === 'function'
+      ? libraryResult(args)
+      : clone(libraryResult);
     if (command === 'get_library_state') return { valid: true, path: 'C:\\Music', reason: 'Library ready.' };
     throw new Error(`Unexpected command ${command}`);
   };
@@ -171,8 +194,8 @@ async function importMainWithHarness({ statusPayload, deviceResult }) {
   };
 
   await import(`../src/main.js?test=${Date.now()}-${Math.random()}`);
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+  await tick();
+  await tick();
   return { document, calls };
 }
 
@@ -218,7 +241,7 @@ test('Check device-guide action invokes open_guide and keeps busy and success me
   });
 
   document.elements.get('check-action').click();
-  await new Promise((resolve) => setImmediate(resolve));
+  await tick();
 
   assert.deepEqual(
     calls.filter((call) => call.command === 'run_device_action').map((call) => call.args.action),
@@ -230,8 +253,8 @@ test('Check device-guide action invokes open_guide and keeps busy and success me
   assert.equal(document.elements.get('check-action-message').hidden, false);
 
   resolveDeviceAction({ status: 'ready', reason: 'Device guide created and opened.' });
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+  await tick();
+  await tick();
 
   assert.equal(document.elements.get('check-view').hidden, false);
   assert.equal(document.elements.get('check-action').disabled, false);
@@ -247,8 +270,8 @@ test('Check device-guide action keeps structured failure on Check', async () => 
   });
 
   document.elements.get('check-action').click();
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+  await tick();
+  await tick();
 
   assert.equal(document.elements.get('check-view').hidden, false);
   assert.equal(
@@ -289,7 +312,7 @@ test('Devices action still invokes the existing open_guide path', async () => {
 
   document.viewButtons.find((button) => button.dataset.view === 'devices').click();
   document.elements.get('devices-action').click();
-  await new Promise((resolve) => setImmediate(resolve));
+  await tick();
 
   assert.deepEqual(
     calls.filter((call) => call.command === 'run_device_action').map((call) => call.args.action),
@@ -297,4 +320,98 @@ test('Devices action still invokes the existing open_guide path', async () => {
   );
   assert.equal(document.elements.get('devices-message').textContent, 'Device guide created and opened.');
   assert.match(document.elements.get('devices-message').className, /tone-ready/);
+});
+
+test('server action enables Check guide action after ready status and busy cleanup', async () => {
+  const initial = clone(await fixture('ready'));
+  initial.checks.server.status = 'needs_action';
+  initial.checks.server.reason = 'The local Mobile Edition server is not reachable on localhost.';
+  initial.checks.privateHttps.status = 'needs_action';
+  delete initial.checks.privateHttps.url;
+  let resolveServerAction;
+  const serverAction = new Promise((resolve) => {
+    resolveServerAction = resolve;
+  });
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: initial,
+    serverResult: () => serverAction,
+    deviceResult: { status: 'ready', reason: 'Device guide created and opened.' },
+  });
+
+  assert.equal(document.elements.get('server-view').hidden, false);
+  assert.equal(document.elements.get('server-action').disabled, false);
+
+  document.elements.get('server-action').click();
+  await tick();
+
+  assert.deepEqual(
+    calls.filter((call) => call.command === 'run_server_action').map((call) => call.args.action),
+    ['start'],
+  );
+  assert.equal(document.elements.get('check-action').disabled, true);
+
+  resolveServerAction({
+    status: 'ready',
+    reason: 'Server action finished. Setup doctor refreshed.',
+    statusPayload: await fixture('ready'),
+  });
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('check-view').hidden, false);
+  assert.equal(document.elements.get('check-action-row').hidden, false);
+  assert.equal(document.elements.get('check-action').disabled, false);
+  assert.equal(document.elements.get('check-action').dataset.action, 'open_guide');
+});
+
+test('library apply shows saving and checking feedback through routing refresh', async () => {
+  const initial = await fixture('needs-action');
+  const serverStep = clone(await fixture('ready'));
+  serverStep.checks.server.status = 'needs_action';
+  serverStep.checks.server.reason = 'The local Mobile Edition server is not reachable on localhost.';
+  serverStep.checks.privateHttps.status = 'needs_action';
+  delete serverStep.checks.privateHttps.url;
+  let statusCalls = 0;
+  let resolveStatusRefresh;
+  const statusRefresh = new Promise((resolve) => {
+    resolveStatusRefresh = resolve;
+  });
+  let resolveLibrarySave;
+  const librarySave = new Promise((resolve) => {
+    resolveLibrarySave = resolve;
+  });
+  const { document } = await importMainWithHarness({
+    statusPayload: initial,
+    getStatus: () => {
+      statusCalls += 1;
+      return statusCalls === 1 ? initial : statusRefresh;
+    },
+    libraryResult: () => librarySave,
+    deviceResult: { status: 'ready', reason: 'Device guide created and opened.' },
+  });
+
+  document.elements.get('browse-library').click();
+  await tick();
+  await tick();
+  assert.equal(document.elements.get('apply-library').disabled, false);
+
+  document.elements.get('apply-library').click();
+  await tick();
+
+  assert.equal(document.elements.get('apply-library').textContent, 'Saving...');
+  assert.match(document.elements.get('library-message').textContent, /Saving this library/);
+  assert.match(document.elements.get('library-message').textContent, /checking the next setup step/);
+
+  resolveLibrarySave({ valid: true, path: 'C:\\Music', reason: 'Library saved.' });
+  await tick();
+
+  assert.equal(document.elements.get('apply-library').textContent, 'Saving...');
+  assert.match(document.elements.get('library-message').textContent, /Library saved/);
+  assert.match(document.elements.get('library-message').textContent, /Checking the server step/);
+
+  resolveStatusRefresh(serverStep);
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('server-view').hidden, false);
 });
