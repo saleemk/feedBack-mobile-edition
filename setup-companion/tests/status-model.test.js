@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 import {
+  buildCheckActionModel,
   buildDeviceModel,
   buildRenderModel,
   buildServerModel,
@@ -230,6 +231,36 @@ test('buildDeviceModel chooses HTTPS enablement or guide opening from doctor tru
   assert.equal(ready.canRun, true);
   assert.equal(ready.url, 'https://desktop.example.ts.net');
   assert.equal(ready.badgeLabel, 'Devices ready');
+  assert.equal(ready.rows.map((row) => row.key).join(','), 'server,tailscale,privateHttps');
+});
+
+test('buildCheckActionModel exposes only the complete ready device-guide action', async () => {
+  const ready = buildCheckActionModel(await fixture('ready'));
+
+  assert.equal(ready.visible, true);
+  assert.equal(ready.action, 'open_guide');
+  assert.equal(ready.actionKind, 'device');
+  assert.equal(ready.actionLabel, 'Connect phone / tablet');
+  assert.equal(ready.canRun, true);
+
+  const incompletePayload = clone(await fixture('ready'));
+  incompletePayload.checks.privateHttps.status = 'needs_action';
+  delete incompletePayload.checks.privateHttps.url;
+  const incomplete = buildCheckActionModel(incompletePayload);
+
+  assert.equal(incomplete.visible, false);
+  assert.equal(incomplete.action, 'none');
+  assert.equal(incomplete.canRun, false);
+
+  const conflictPayload = clone(await fixture('ready'));
+  conflictPayload.checks.docker.status = 'needs_action';
+  conflictPayload.checks.docker.reason = 'This checkout Docker service is not ready.';
+  const conflict = buildCheckActionModel(conflictPayload);
+
+  assert.equal(conflict.visible, false);
+  assert.equal(conflict.action, 'none');
+  assert.equal(conflict.canRun, false);
+  assert.match(conflict.disabledReason, /server is responding/i);
 });
 
 test('buildDeviceModel disables device actions for current-checkout server ownership conflicts', async () => {

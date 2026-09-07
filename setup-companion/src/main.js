@@ -1,4 +1,4 @@
-import { buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
+import { buildCheckActionModel, buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
 import {
   PREREQUISITE_WAIT_INTERVAL_MS,
   buildPrerequisiteCompleteMessage,
@@ -15,6 +15,9 @@ const refreshButton = document.querySelector('#refresh');
 const statusBand = document.querySelector('#status-band');
 const overallLabel = document.querySelector('#overall-label');
 const overallReason = document.querySelector('#overall-reason');
+const checkActionRow = document.querySelector('#check-action-row');
+const checkActionButton = document.querySelector('#check-action');
+const checkActionMessage = document.querySelector('#check-action-message');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
 const viewButtons = [...document.querySelectorAll('[data-view]')];
@@ -56,6 +59,9 @@ let serverActionTimer = 0;
 let serverActionMessage = '';
 let serverActionTone = '';
 let deviceActionRunning = false;
+let deviceActionView = '';
+let checkDeviceActionMessage = '';
+let checkDeviceActionTone = '';
 let deviceActionMessage = '';
 let deviceActionTone = '';
 let prerequisiteActionRunning = false;
@@ -83,6 +89,7 @@ function renderError(error) {
   statusBand.className = 'status-band tone-error';
   overallLabel.textContent = 'Setup doctor unavailable';
   overallReason.textContent = error?.message || 'The setup companion could not read the setup doctor.';
+  renderCheckActionUnavailable();
   generatedAt.textContent = '';
   checksList.replaceChildren();
   renderServerUnavailable(error);
@@ -96,6 +103,8 @@ function routeToWorkflow(workflow, preferredView = '') {
 }
 
 function clearActionMessages() {
+  checkDeviceActionMessage = '';
+  checkDeviceActionTone = '';
   serverActionMessage = '';
   serverActionTone = '';
   deviceActionMessage = '';
@@ -103,7 +112,10 @@ function clearActionMessages() {
 }
 
 function setActionMessage(view, message, tone = 'attention') {
-  if (view === 'server') {
+  if (view === 'check') {
+    checkDeviceActionMessage = message;
+    checkDeviceActionTone = tone;
+  } else if (view === 'server') {
     serverActionMessage = message;
     serverActionTone = tone;
   } else if (view === 'devices') {
@@ -113,6 +125,7 @@ function setActionMessage(view, message, tone = 'attention') {
 }
 
 function modelForView(view, payload = latestStatusPayload) {
+  if (view === 'check') return buildCheckActionModel(payload);
   if (view === 'server') return buildServerModel(payload);
   if (view === 'devices') return buildDeviceModel(payload);
   return null;
@@ -256,6 +269,50 @@ function startPrerequisiteWait(view, action, label) {
   schedulePrerequisitePoll();
 }
 
+function checkActionButtonLabel(action) {
+  return action === 'open_guide' ? 'Opening...' : 'Working...';
+}
+
+function renderCheckActionUnavailable() {
+  checkActionRow.hidden = true;
+  checkActionButton.disabled = true;
+  checkActionButton.dataset.action = 'none';
+  checkActionButton.textContent = 'Connect phone / tablet';
+  checkActionMessage.textContent = '';
+  checkActionMessage.className = '';
+  checkActionMessage.hidden = true;
+}
+
+function renderCheckActionState() {
+  if (!latestStatusPayload) {
+    renderCheckActionUnavailable();
+    return;
+  }
+
+  const model = buildCheckActionModel(latestStatusPayload);
+  const shouldShow = model.visible || (deviceActionRunning && deviceActionView === 'check') || Boolean(checkDeviceActionMessage);
+  checkActionRow.hidden = !shouldShow;
+  checkActionButton.dataset.action = model.action;
+  checkActionButton.textContent = deviceActionRunning && deviceActionView === 'check'
+    ? checkActionButtonLabel(model.action)
+    : model.actionLabel;
+  checkActionButton.disabled = setupActionRunning() || !model.canRun;
+
+  if (deviceActionRunning && deviceActionView === 'check') {
+    checkActionMessage.textContent = 'Creating and opening the local QR guide.';
+    checkActionMessage.className = 'tone-attention';
+    checkActionMessage.hidden = false;
+  } else if (checkDeviceActionMessage) {
+    checkActionMessage.textContent = checkDeviceActionMessage;
+    checkActionMessage.className = checkDeviceActionTone ? `tone-${checkDeviceActionTone}` : '';
+    checkActionMessage.hidden = false;
+  } else {
+    checkActionMessage.textContent = '';
+    checkActionMessage.className = '';
+    checkActionMessage.hidden = true;
+  }
+}
+
 function renderStatus(payload, options = {}) {
   const { route = false, clearMessages = false, preferredView = '' } = options;
   latestStatusPayload = payload;
@@ -267,6 +324,7 @@ function renderStatus(payload, options = {}) {
   overallReason.textContent = workflow.reason || model.overall.reason;
   generatedAt.textContent = model.generatedAt ? `Checked ${model.generatedAt}` : '';
   checksList.replaceChildren(...model.rows.map(renderRow));
+  renderCheckActionState();
   renderServerState();
   renderDevicesState();
   if (route) routeToWorkflow(workflow, preferredView);
@@ -648,21 +706,25 @@ function renderDevicesState() {
   }
 }
 
-function setDeviceActionBusy(isBusy) {
+function setDeviceActionBusy(isBusy, view = '') {
   deviceActionRunning = isBusy;
+  deviceActionView = isBusy ? view : '';
   refreshButton.disabled = setupActionRunning();
   for (const button of viewButtons) {
     button.disabled = setupActionRunning();
   }
   setLibraryBusy(isBusy);
+  renderCheckActionState();
   renderServerState();
   renderDevicesState();
 }
 
-async function runDeviceAction() {
-  const model = buildDeviceModel(latestStatusPayload);
+async function runDeviceAction(view = 'devices') {
+  const model = view === 'check'
+    ? buildCheckActionModel(latestStatusPayload)
+    : buildDeviceModel(latestStatusPayload);
   if (!model.canRun || setupActionRunning()) return;
-  if (isWatchedPrerequisite('devices', model)) return;
+  if (view === 'devices' && isWatchedPrerequisite('devices', model)) return;
   if (model.actionKind === 'prerequisite') {
     await runPrerequisiteAction(model.action, 'devices');
     return;
@@ -671,29 +733,27 @@ async function runDeviceAction() {
   cancelPrerequisiteWait();
 
   const operation = ++actionSequence;
-  deviceActionMessage = '';
-  deviceActionTone = '';
-  setDeviceActionBusy(true);
+  setActionMessage(view, '', '');
+  setDeviceActionBusy(true, view);
   try {
     const result = await bridge()('run_device_action', { action: model.action });
     if (operation !== actionSequence) return;
-    deviceActionMessage = result.reason || 'Device action finished. Setup doctor refreshed.';
-    deviceActionTone = result.status === 'ready'
+    const tone = result.status === 'ready'
       ? 'ready'
       : result.status === 'failed' || result.status === 'conflict' || result.status === 'unavailable'
         ? 'error'
         : 'attention';
+    setActionMessage(view, result.reason || 'Device action finished. Setup doctor refreshed.', tone);
     if (result.statusPayload) {
-      renderStatus(result.statusPayload, { route: true, clearMessages: true });
+      renderStatus(result.statusPayload, { route: view !== 'check', clearMessages: false });
     } else {
-      await refreshChecks({ route: true, clearMessages: true });
+      await refreshChecks({ route: view !== 'check', clearMessages: false });
     }
   } catch (error) {
     if (operation !== actionSequence) return;
-    deviceActionMessage = error?.message || 'Device action failed.';
-    deviceActionTone = 'error';
+    setActionMessage(view, error?.message || 'Device action failed.', 'error');
   } finally {
-    if (operation === actionSequence) setDeviceActionBusy(false);
+    if (operation === actionSequence) setDeviceActionBusy(false, view);
   }
 }
 
@@ -710,6 +770,11 @@ for (const button of viewButtons) {
 browseLibraryButton.addEventListener('click', chooseLibrary);
 applyLibraryButton.addEventListener('click', applyLibrary);
 serverActionButton.addEventListener('click', runServerAction);
-devicesActionButton.addEventListener('click', runDeviceAction);
+checkActionButton.addEventListener('click', () => {
+  void runDeviceAction('check');
+});
+devicesActionButton.addEventListener('click', () => {
+  void runDeviceAction('devices');
+});
 window.addEventListener('beforeunload', clearPrerequisiteWait);
 void refreshChecks({ route: true, clearMessages: true });

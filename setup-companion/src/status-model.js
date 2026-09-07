@@ -374,7 +374,27 @@ export function buildDeviceModel(payload) {
   };
 }
 
+export function buildCheckActionModel(payload) {
+  const workflow = buildWorkflowModel(payload);
+  const devices = buildDeviceModel(payload);
+  const canOpenGuide = workflow.complete
+    && !workflow.serverConflict
+    && devices.actionKind === 'device'
+    && devices.action === 'open_guide'
+    && devices.canRun;
+
+  return {
+    visible: canOpenGuide,
+    action: canOpenGuide ? 'open_guide' : 'none',
+    actionKind: canOpenGuide ? 'device' : 'none',
+    actionLabel: 'Connect phone / tablet',
+    canRun: canOpenGuide,
+    disabledReason: canOpenGuide ? '' : workflow.reason || devices.disabledReason || 'Device guide is not available yet.',
+  };
+}
+
 export const setupCompanionStatusModel = Object.freeze({
+  buildCheckActionModel,
   buildRenderModel,
   buildWorkflowModel,
   buildServerModel,

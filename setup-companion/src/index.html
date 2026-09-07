@@ -26,11 +26,17 @@
 
     <div id="check-view" class="view-panel">
       <section id="status-band" class="status-band tone-loading" aria-live="polite">
-        <div>
+        <div class="status-heading">
           <p class="status-kicker">Current pattern</p>
           <h2 id="overall-label">Loading checks</h2>
         </div>
-        <p id="overall-reason">Reading the setup doctor report.</p>
+        <div class="status-copy">
+          <p id="overall-reason">Reading the setup doctor report.</p>
+          <div id="check-action-row" class="check-action-row" hidden>
+            <button id="check-action" class="primary-action" type="button" disabled>Connect phone / tablet</button>
+            <p id="check-action-message" aria-live="polite" hidden></p>
+          </div>
+        </div>
       </section>
 
       <section class="checks-section" aria-labelledby="checks-heading">
