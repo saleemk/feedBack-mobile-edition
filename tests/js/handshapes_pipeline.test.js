@@ -30,7 +30,7 @@ test('handshapes WS case accumulates incoming chunks into handShapes', () => {
     // Server streams handshapes in chunks; the case must concat rather
     // than replace so multi-chunk sources don't silently truncate.
     const src = fs.readFileSync(HIGHWAY_JS, 'utf8');
-    const block = getCaseBlock(src, 'handshapes');
+    const block = getCaseBlock(src, 'handshapes', src.indexOf('connect(wsUrl'));
     assert.match(
         block,
         /hwState\.handShapes\s*=\s*hwState\.handShapes\.concat\(\s*msg\.data\s*\)/,

@@ -174,6 +174,7 @@ function loadPlaySong(sandbox) {
         function _resetJuceAudioShimChain() {}
         function _resetAudioSeekState() {}
         function stopOfflinePracticePlayback() {}
+        function _resetOfflinePracticeSiblings() {}
         function setPlayButtonState() {}
         function clearLoop() {}
         function _resetSectionPracticeLog() {}

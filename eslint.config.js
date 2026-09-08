@@ -29,7 +29,11 @@ const sizeRule = (max) => ['warn', { max, skipBlankLines: false, skipComments: f
 module.exports = [
     {
         ignores: [
+            '.pytest_cache/**',
+            '.tmp/**',
+            'artifacts/**',
             'node_modules/**',
+            'setup-companion/src-tauri/target/**',
             'static/vendor/**',
             'plugins/**/assets/vendor/**',
             '**/*.min.js',
@@ -55,7 +59,17 @@ module.exports = [
     // module graph, which is what makes no-cycle meaningful here — a carved
     // module that imports app.js back would close a cycle and fail this gate.
     {
-        files: ['**/src/**/*.js', '**/*.mjs', 'static/app.js', 'static/js/**/*.js', 'static/highway.js'],
+        files: [
+            '**/src/**/*.js',
+            '**/*.mjs',
+            'plugins/mobile_ui/screen.js',
+            'setup-companion/**/*.js',
+            'static/app.js',
+            'static/js/**/*.js',
+            'static/highway.js',
+            'static/v3/offline-catalog.js',
+            'static/v3/offline-practice.js',
+        ],
         languageOptions: { ecmaVersion: 'latest', sourceType: 'module' },
         plugins: { 'import-x': importX },
         // v4 flat-config resolver (resolver-next + createNodeResolver). Without

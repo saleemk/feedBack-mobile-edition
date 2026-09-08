@@ -1,8 +1,8 @@
 # Mobile Edition Release Manifest
 
 Edition version: `0.3.0`
-Status: stable release
-Captured: 2026-09-08
+Status: development after v0.3.0
+Captured: 2026-09-09
 
 This manifest pins the source inputs used by this checkout. It is intentionally
 separate from the core application's `VERSION` file.
@@ -11,7 +11,7 @@ separate from the core application's `VERSION` file.
 
 | Component | Repository | Branch | Commit |
 | --- | --- | --- | --- |
-| fee[dB]ack Core integration | This Edition repository, based on `https://github.com/got-feedBack/feedBack` | `mobile/main` source history | `f0d61eee22434b57e5531ef9a97eafb54ada377f` |
+| fee[dB]ack Core integration | This Edition repository, based on `https://github.com/got-feedBack/feedBack` | `mobile/main` source history | `c954997ce12ff8ca4324ea2e05e4c5f66f19c50d` |
 | Mobile UI | `https://github.com/saleemk/feedBack-plugin-mobile-ui` | `main` | `c1d0ddb471ff459484b21c537be453091bb03440` |
 | Section Map | `https://github.com/saleemk/feedBack-plugin-sectionmap` | `mobile/main` | `cd082b8a4d0a58de90b7aaf8389c2dc4f6eae4bb` |
 
@@ -46,6 +46,16 @@ make the release archive identify itself recursively.
 
 ## Validation Recorded
 
+- Core offline-PWA and feedpak-gate tests passed: `34/34`.
+- Feedpak conformance passed all four layers against specification commit
+  `52548b742f64c2a35052a141976ea1b7889f4b1a` and all seven committed packages.
+- Edition ESLint completed with zero errors; twelve existing size and unused
+  directive warnings remain non-blocking.
+- Two clean Tailwind rebuilds produced identical SHA-256
+  `4ae5b85ea40c83970b7874d7c867ab0793980544d093cc71c3eb476109cb35a4`.
+- Setup Companion JavaScript tests passed: `40/40` using cross-platform Node
+  test discovery.
+- The full Edition root JavaScript suite passed: `1339/1339`.
 - Mobile UI JavaScript syntax checks passed.
 - Section Map tests passed: `23/23`.
 - Core JavaScript tests passed: `61/61`.

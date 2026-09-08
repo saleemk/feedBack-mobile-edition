@@ -17,8 +17,8 @@ const HIGHWAY_JS = path.join(__dirname, '..', '..', 'static', 'highway.js');
 // Extract a single switch case body so assertions can match against just
 // that block rather than a fixed-length slice (more robust to harmless
 // edits adjacent to the case).
-function getCaseBlock(src, label) {
-    const start = src.indexOf(`case '${label}'`);
+function getCaseBlock(src, label, fromIndex = 0) {
+    const start = src.indexOf(`case '${label}'`, fromIndex);
     assert.ok(start !== -1, `case '${label}' not found in highway.js`);
     const tail = src.slice(start);
     const nextCase = tail.search(/\n\s*case\s+['"]/);
@@ -34,7 +34,7 @@ test('beats:loaded emit is wired into the WS beats case', () => {
     // (regression) or replacing window.feedBack.emit with something
     // else (intentional refactor — this test then needs updating).
     const src = fs.readFileSync(HIGHWAY_JS, 'utf8');
-    const block = getCaseBlock(src, 'beats');
+    const block = getCaseBlock(src, 'beats', src.indexOf('connect(wsUrl'));
     assert.match(
         block,
         /window\.feedBack\.emit\(\s*['"]beats:loaded['"]/,
@@ -55,7 +55,7 @@ test('beats:loaded emit is guarded against missing window.feedBack', () => {
     // (including typeof checks and combined conditions) rather than
     // mandating the exact `if (window.feedBack)` form.
     const src = fs.readFileSync(HIGHWAY_JS, 'utf8');
-    const block = getCaseBlock(src, 'beats');
+    const block = getCaseBlock(src, 'beats', src.indexOf('connect(wsUrl'));
     assert.match(
         block,
         /if\s*\(\s*[^)]*window\.feedBack\b[^)]*\)/,
@@ -70,7 +70,7 @@ test('beats:loaded guard verifies emit is callable (typeof check)', () => {
     // non-callable values pass; require an explicit typeof === 'function'
     // check so the guard catches that real edge.
     const src = fs.readFileSync(HIGHWAY_JS, 'utf8');
-    const block = getCaseBlock(src, 'beats');
+    const block = getCaseBlock(src, 'beats', src.indexOf('connect(wsUrl'));
     assert.match(
         block,
         /typeof\s+window\.feedBack\.emit\s*===\s*['"]function['"]/,

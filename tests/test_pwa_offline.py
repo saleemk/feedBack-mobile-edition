@@ -109,9 +109,8 @@ def test_offline_document_is_self_contained_and_retries(client):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert response.headers["cache-control"] == "no-cache"
-    assert "Downloaded practice" in response.text
-    assert "Your fee[dB]ack server cannot be reached." in response.text
-    assert "practice packages saved on this device" in response.text
+    assert "Offline practice" in response.text
+    assert "Open downloaded songs while your server is unavailable." in response.text
     assert "window.location.assign('/v3/')" in response.text
     assert 'id="offline-package-manager" hidden' in response.text
     assert 'type="module" src="/static/v3/offline-catalog.js"' in response.text

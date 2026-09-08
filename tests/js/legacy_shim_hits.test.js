@@ -96,6 +96,14 @@ function region(src, needle, length = 1200) {
     return src.slice(start, start + length);
 }
 
+function boundedRegion(src, startNeedle, endNeedle) {
+    const start = src.indexOf(startNeedle);
+    assert.ok(start !== -1, `missing source needle: ${startNeedle}`);
+    const end = src.indexOf(endNeedle, start + startNeedle.length);
+    assert.ok(end !== -1, `missing source boundary: ${endNeedle}`);
+    return src.slice(start, end);
+}
+
 test('plugin script hydration exposes the current plugin id for legacy registrations', () => {
     const src = source(PLUGIN_LOADER_JS);
     // Anchored on the ASSIGNMENT, not the URL literal: the URL is built in
@@ -129,7 +137,7 @@ test('library providers route through native library capability', () => {
 test('visualization renderer installs preserve plugin attribution', () => {
     const src = source(VIZ_JS);
     const tagger = region(src, 'function _tagVizRenderer(renderer, id)', 700);
-    const setViz = region(src, 'function setViz(id)', 3600);
+    const setViz = boundedRegion(src, 'function setViz(id)', 'function _setAutoVizLabel(');
     const autoViz = region(src, 'function _autoMatchViz()', 5200);
 
     assert.match(tagger, /renderer\.pluginId\s*=\s*id/);
