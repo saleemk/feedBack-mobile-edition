@@ -34,9 +34,42 @@ fee[dB]ack release.
 
 ## Quick Start
 
-You need Git, Docker Desktop with Docker Compose,
+Choose either the complete Windows release bundle or a Git clone. Both paths
+run the same Docker-based Mobile Edition and open the same visual Setup
+Companion. Both require Docker Desktop with Docker Compose,
 [Tailscale for Windows](https://tailscale.com/download/windows), the Tailscale
 app on your mobile devices, and a fee[dB]ack-compatible song library.
+
+### Download The Windows Setup Bundle
+
+This path does not require Git. For a release that provides Windows setup
+assets:
+
+1. Open [GitHub Releases](https://github.com/saleemk/feedBack-mobile-edition/releases)
+   and download the versioned setup ZIP. For the prepared `v0.3.0-rc.1`
+   prerelease, the filename is
+   `feedback-mobile-edition-v0.3.0-rc.1-windows-setup.zip`.
+2. Optionally download the adjacent `.sha256` file and compare it with:
+
+```powershell
+Get-FileHash .\feedback-mobile-edition-v0.3.0-rc.1-windows-setup.zip -Algorithm SHA256
+```
+
+3. Extract the ZIP, open the extracted folder, and double-click
+   `Setup-MobileEdition.cmd`.
+
+The prerelease Companion is not digitally signed, so Windows may show an
+unrecognized-app warning. Verify that the bundle came from this repository's
+GitHub release and that its checksum matches before running it.
+
+The complete bundle includes `Setup-MobileEdition.exe` and the source checkout
+it configures. The separate standalone EXE release asset supports secure clone
+bootstrap; it is not useful by itself without the rest of the checkout.
+
+### Clone The Repository
+
+This path requires Git and is convenient when you want to update with
+`git pull`.
 
 1. Clone this repository and enter it:
 
@@ -47,6 +80,14 @@ Set-Location feedBack-mobile-edition
 
 2. Open the checkout folder in File Explorer and double-click
    `Setup-MobileEdition.cmd`.
+
+On the first visual launch, the launcher downloads the exact Companion version
+pinned by this checkout, verifies its SHA-256 checksum, caches it locally, and
+then opens it. If the download is unavailable or verification fails, the
+launcher reports the problem and deliberately falls back to terminal Guided
+Setup. The managed cache is local to the checkout and is not committed.
+
+### Finish Guided Setup
 
 Command-line users can run the same launcher from PowerShell or Command
 Prompt:
@@ -69,10 +110,11 @@ the underlying PowerShell script directly:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-MobileEdition.ps1
 ```
 
-Guided Setup runs the read-only setup doctor first, asks before each change,
-helps create or update `.env`, starts Mobile Edition with Docker when you
-approve it, and configures private Tailscale HTTPS only when it can do so
-without replacing an existing root Serve route.
+The Setup Companion runs the read-only setup doctor first, asks before each
+change, helps create or update `.env`, starts Mobile Edition with Docker when
+you approve it, and configures private Tailscale HTTPS only when it can do so
+without replacing an existing root Serve route. The terminal Guided Setup is a
+fallback over the same guarded setup helpers.
 
 When setup finishes with private HTTPS ready, it can also create and open a
 local phone/tablet guide with a QR code. The QR code is generated inside your
@@ -80,12 +122,12 @@ local Mobile Edition container; the private URL is not sent to an online QR
 service. The HTTPS address is still shown as text if guide creation is skipped
 or unavailable.
 
-3. Open the private HTTPS address reported by setup on your computer, phone, or
-   tablet.
+Open the private HTTPS address reported by setup on your computer, phone, or
+tablet.
 
-Guided Setup starts Mobile Edition in the background, so you can close the setup
-terminal after it finishes. The first build can take a while. Tailscale Serve
-continues in the background and resumes after restarts. Use
+Setup starts Mobile Edition in the background, so you can close the Companion
+or fallback terminal after it finishes. The first build can take a while.
+Tailscale Serve continues in the background and resumes after restarts. Use
 `tailscale serve status` to display the address again.
 
 The release Compose file mounts only your external song library and a Docker

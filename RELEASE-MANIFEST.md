@@ -1,8 +1,8 @@
 # Mobile Edition Release Manifest
 
-Edition version: `0.2.0`
-Status: public `v0.2.0` source release
-Captured: 2026-08-24
+Edition version: `0.3.0-rc.1`
+Status: prepared local prerelease candidate
+Captured: 2026-09-08
 
 This manifest pins the source inputs used by this checkout. It is intentionally
 separate from the core application's `VERSION` file.
@@ -29,6 +29,21 @@ with BtbN's retained final monthly build for July 2026:
 This is an Edition packaging override. The pinned Core snapshot remains
 unchanged.
 
+The Windows Setup Companion for this candidate was built from Edition commit
+`eeb81932b95845146202b1975e948bbaa2f351d2`:
+
+- Bootstrap schema: `feedback-mobile-edition.setup-companion-bootstrap.v1`
+- Companion version: `v0.3.0-rc.1`
+- Planned standalone asset:
+  `https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0-rc.1/Setup-MobileEdition.exe`
+- Companion SHA-256:
+  `a8a7b60363f9ff2019db579e0958fb5afe6db8f0cec6a14eddaa38b8cb89a842`
+
+The final Edition commit and setup ZIP checksum are recorded by the release tag,
+the bundle's `SETUP-BUNDLE-MANIFEST.json`, and its adjacent checksum file after
+the documentation commit. They are not embedded here because doing so would
+make the release archive identify itself recursively.
+
 ## Validation Recorded
 
 - Mobile UI JavaScript syntax checks passed.
@@ -49,9 +64,36 @@ unchanged.
   an offline package; Private Browsing truthfully reported OPFS unavailable.
 - The clean Edition candidate passed final online startup, offline download,
   server-unavailable recovery, and offline playback testing.
+- Setup Companion JavaScript tests passed: `40/40`.
+- The dependency-free PowerShell suites for setup orchestration, setup doctor,
+  launcher/bootstrap, library selection, server/device actions, and bundle
+  construction passed.
+- The secure clone bootstrap tests covered strict manifest validation, local
+  precedence, explicit terminal arguments, verified cache reuse, corrupt-cache
+  replacement, download/hash/cache failures, temporary-file cleanup, and
+  terminal fallback without real network access.
+- An extracted Windows setup-bundle rehearsal opened the visual Companion from
+  `Setup-MobileEdition.cmd` against the fresh extracted checkout without using
+  terminal fallback.
+- The audited pre-documentation bundle contained 1,035 entries with no tracked
+  `.env`, Git metadata, local handoff, build cache, song library, or generated
+  artifact paths. Its embedded Companion hash matched the bootstrap pin.
+- The prerelease Setup Companion is not digitally signed. Windows may display
+  an unrecognized-app warning; published checksums remain part of the release
+  verification path.
 
 ## Release Notes
 
+- Adds the visual Windows Setup Companion with guided system checks, library
+  selection, Docker server controls, Tailscale recovery, and device connection.
+- Adds a local QR device guide and a ready-state shortcut for connecting a
+  phone or tablet.
+- Adds a complete Windows setup ZIP for users who do not want to install Git.
+- Adds a secure clone bootstrap that downloads one exact versioned Companion,
+  verifies SHA-256 before launch, caches it locally, and retains terminal Guided
+  Setup as the failure fallback.
+- Core, Mobile UI, and Section Map source pins are unchanged from `v0.2.0`;
+  this candidate focuses on setup and distribution.
 - Offline practice packages now store every supported arrangement while sharing
   one downloaded audio file per song.
 - The offline Player supports arrangement switching, Mobile UI controls,
@@ -64,5 +106,4 @@ unchanged.
   is self-contained.
 - User libraries and configuration are external mounts and are not part of the
   repository or image build context.
-- A public Edition image and downloadable setup bundle have not been
-  published.
+- A pinned public Edition container image has not been published.

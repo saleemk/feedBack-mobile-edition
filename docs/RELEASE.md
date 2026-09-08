@@ -1,9 +1,9 @@
 # Mobile Edition Release Process
 
 This document defines the durable process for producing a fee[dB]ack Mobile
-Edition release. The current `v0.2.0` source release uses the clone-and-build
-path. No downloadable setup bundle or published Edition image is currently
-available.
+Edition release. The prepared `v0.3.0-rc.1` candidate supports a Git
+clone-and-run path and a complete Windows setup bundle. A pinned public Edition
+container image is not currently available.
 
 ## Release Inputs
 
@@ -125,24 +125,43 @@ untested; do not imply broader support from automated checks alone.
 Only after Saleem approves the candidate:
 
 1. Commit the Edition assembly with its manifest and documentation.
-2. Tag the approved Edition version.
-3. Create or update the public Edition repository.
-4. Publish the source archive or setup bundle.
-5. Build and publish a pinned container image when that distribution path is
+2. Build, audit, and manually test the final setup bundle and standalone Setup
+   Companion from that committed state.
+3. Create and push the exact prerelease tag without advancing public `main`.
+4. Publish the standalone EXE, its checksum, the complete setup ZIP, and the
+   ZIP checksum under that tag.
+5. Verify the public assets and checksums.
+6. Push `main` only after the bootstrap URL pinned there is live and verified.
+7. Test the published setup bundle and a fresh clone from public `main`.
+8. Build and publish a pinned container image when that distribution path is
    ready.
-6. Verify the published artifact from a clean machine or clean checkout.
+
+This ordering prevents a public clone from activating a bootstrap URL before
+the matching verified Companion asset exists. Commit, push, tag, and publishing
+steps each require Saleem's explicit approval.
 
 Do not use a moving image tag as the only release identity. Record a versioned
 tag and immutable digest when a public image is introduced.
 
 ## Current Distribution Paths
 
-The public `v0.2.0` source release supports a clone-and-build path through
-`docker-compose.release.yml`. The default inherited `docker-compose.yml` remains
-the Core development workflow and is not the Edition release command.
+The prepared `v0.3.0-rc.1` prerelease has two Windows acquisition paths:
 
-A downloadable setup bundle and pinned public image are planned distribution
-paths. They are not available until a release explicitly publishes them.
+- A complete versioned setup ZIP contains the committed Edition checkout and a
+  root `Setup-MobileEdition.exe`. Users extract it and run
+  `Setup-MobileEdition.cmd`; Git is not required.
+- A Git clone contains the same launcher and an immutable bootstrap manifest.
+  When no local Companion exists, the launcher downloads the exact versioned
+  standalone EXE, verifies SHA-256 before every managed launch, caches it in an
+  ignored checkout-relative directory, and falls back to terminal Guided Setup
+  if bootstrap is unavailable.
+
+The standalone EXE is a bootstrap asset, not an independent installation. Both
+paths configure and run the same release Compose stack. The default inherited
+`docker-compose.yml` remains the Core development workflow and is not the
+Edition release command. The `v0.3.0-rc.1` visual bootstrap and setup-bundle
+paths are not publicly available until that release publishes the matching
+assets.
 
 ## Local Windows Setup Bundle Candidate
 

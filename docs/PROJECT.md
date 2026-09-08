@@ -26,7 +26,7 @@ practice without requiring users to assemble several repositories themselves.
 - Keep song libraries and personal data outside the repository and image.
 - Remain able to incorporate useful upstream Core changes deliberately.
 - Preserve source attribution, licenses, and component identity.
-- Provide a clone-and-run path and, later, a packaged release path for average
+- Provide approachable clone-and-run and packaged release paths for average
   users.
 
 ## Non-Goals
@@ -93,7 +93,10 @@ packaging, documentation, distribution, and product-level validation.
 
 ## Current Status
 
-The current Edition is the public `0.2.0` source release. The source checkout,
-release Compose path, manifest, attribution audit, and public Edition repository
-are available. A downloadable setup bundle and pinned public image have not yet
-been published.
+The current prepared prerelease candidate is `v0.3.0-rc.1`. It keeps the tested
+Core and plugin inputs from `v0.2.0` and adds a visual Windows Setup Companion,
+a complete downloadable Windows setup bundle, and a secure bootstrap path for
+Git clones. The release remains Docker-based; the Companion guides local
+library, server, private HTTPS, and device setup rather than installing a
+separate native fee[dB]ack application. A pinned public container image is not
+yet available.
