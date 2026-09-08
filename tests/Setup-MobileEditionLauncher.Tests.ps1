@@ -233,6 +233,17 @@ Assert-True $launcherSource.Contains('exit /b %SETUP_EXIT%') 'Launcher should re
 Assert-True $launcherSource.Contains('if not "%SETUP_EXIT%"=="0"') 'Launcher should branch on setup failure.'
 Assert-True $launcherSource.Contains('pause') 'Launcher should keep the console open on failure.'
 
+$realBootstrapManifestPath = Join-Path -Path $repoRoot -ChildPath 'SETUP-COMPANION-BOOTSTRAP.json'
+Assert-True (Test-Path -LiteralPath $realBootstrapManifestPath -PathType Leaf) 'Real bootstrap manifest should exist at the repository root.'
+$realBootstrapManifestContent = Get-Content -LiteralPath $realBootstrapManifestPath -Raw
+$realBootstrapManifest = ConvertFrom-MobileEditionSetupCompanionBootstrapManifest -ManifestContent $realBootstrapManifestContent -ManifestPath $realBootstrapManifestPath
+$realBootstrapManifestProperties = @($realBootstrapManifest.PSObject.Properties | ForEach-Object { $_.Name })
+Assert-Equal ($realBootstrapManifestProperties -join '|') 'schema|version|assetUrl|sha256' 'Real bootstrap manifest parser output should expose only the contract fields.'
+Assert-Equal $realBootstrapManifest.schema 'feedback-mobile-edition.setup-companion-bootstrap.v1' 'Real bootstrap manifest should use the v1 schema.'
+Assert-Equal $realBootstrapManifest.version 'v0.3.0-rc.1' 'Real bootstrap manifest should pin the companion version.'
+Assert-Equal $realBootstrapManifest.assetUrl 'https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0-rc.1/Setup-MobileEdition.exe' 'Real bootstrap manifest should pin the immutable future asset URL.'
+Assert-Equal $realBootstrapManifest.sha256 'a8a7b60363f9ff2019db579e0958fb5afe6db8f0cec6a14eddaa38b8cb89a842' 'Real bootstrap manifest should pin the verified companion SHA-256.'
+
 $precedenceFixture = New-RouterFixture
 try {
     foreach ($candidate in $precedenceFixture.candidates) {
