@@ -1,7 +1,7 @@
 # Mobile Edition Release Manifest
 
-Edition version: `0.3.0-rc.1`
-Status: prepared local prerelease candidate
+Edition version: `0.3.0`
+Status: stable release
 Captured: 2026-09-08
 
 This manifest pins the source inputs used by this checkout. It is intentionally
@@ -29,13 +29,13 @@ with BtbN's retained final monthly build for July 2026:
 This is an Edition packaging override. The pinned Core snapshot remains
 unchanged.
 
-The Windows Setup Companion for this candidate was built from Edition commit
+The Windows Setup Companion for this release was built from Edition commit
 `eeb81932b95845146202b1975e948bbaa2f351d2`:
 
 - Bootstrap schema: `feedback-mobile-edition.setup-companion-bootstrap.v1`
-- Companion version: `v0.3.0-rc.1`
-- Planned standalone asset:
-  `https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0-rc.1/Setup-MobileEdition.exe`
+- Companion version: `v0.3.0`
+- Standalone asset:
+  `https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0/Setup-MobileEdition.exe`
 - Companion SHA-256:
   `a8a7b60363f9ff2019db579e0958fb5afe6db8f0cec6a14eddaa38b8cb89a842`
 
@@ -64,6 +64,10 @@ make the release archive identify itself recursively.
   an offline package; Private Browsing truthfully reported OPFS unavailable.
 - The clean Edition candidate passed final online startup, offline download,
   server-unavailable recovery, and offline playback testing.
+- The published `v0.3.0-rc.1` Windows setup bundle passed a clean user-flow
+  rehearsal: library selection, server startup, private Tailscale HTTPS, QR
+  device connection, online playback, offline download, server shutdown,
+  offline playback, and arrangement switching.
 - Setup Companion JavaScript tests passed: `40/40`.
 - The dependency-free PowerShell suites for setup orchestration, setup doctor,
   launcher/bootstrap, library selection, server/device actions, and bundle
@@ -78,9 +82,18 @@ make the release archive identify itself recursively.
 - The audited pre-documentation bundle contained 1,035 entries with no tracked
   `.env`, Git metadata, local handoff, build cache, song library, or generated
   artifact paths. Its embedded Companion hash matched the bootstrap pin.
-- The prerelease Setup Companion is not digitally signed. Windows may display
+- The Setup Companion is not digitally signed. Windows may display
   an unrecognized-app warning; published checksums remain part of the release
   verification path.
+
+## Known Browser Storage Limits
+
+- Private Browsing can deny the persistent OPFS storage required for offline
+  packages. The tested iPhone flow works in normal Safari and the installed
+  PWA.
+- Browsers without the Web Locks API use the compatible per-arrangement audio
+  layout. Offline downloads and playback remain supported, but those browsers
+  may use more storage until shared-audio mutation locking is available.
 
 ## Release Notes
 
@@ -93,7 +106,7 @@ make the release archive identify itself recursively.
   verifies SHA-256 before launch, caches it locally, and retains terminal Guided
   Setup as the failure fallback.
 - Core, Mobile UI, and Section Map source pins are unchanged from `v0.2.0`;
-  this candidate focuses on setup and distribution.
+  this release focuses on setup and distribution.
 - Offline practice packages now store every supported arrangement while sharing
   one downloaded audio file per song.
 - The offline Player supports arrangement switching, Mobile UI controls,

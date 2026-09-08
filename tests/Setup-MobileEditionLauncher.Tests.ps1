@@ -240,8 +240,8 @@ $realBootstrapManifest = ConvertFrom-MobileEditionSetupCompanionBootstrapManifes
 $realBootstrapManifestProperties = @($realBootstrapManifest.PSObject.Properties | ForEach-Object { $_.Name })
 Assert-Equal ($realBootstrapManifestProperties -join '|') 'schema|version|assetUrl|sha256' 'Real bootstrap manifest parser output should expose only the contract fields.'
 Assert-Equal $realBootstrapManifest.schema 'feedback-mobile-edition.setup-companion-bootstrap.v1' 'Real bootstrap manifest should use the v1 schema.'
-Assert-Equal $realBootstrapManifest.version 'v0.3.0-rc.1' 'Real bootstrap manifest should pin the companion version.'
-Assert-Equal $realBootstrapManifest.assetUrl 'https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0-rc.1/Setup-MobileEdition.exe' 'Real bootstrap manifest should pin the immutable future asset URL.'
+Assert-Equal $realBootstrapManifest.version 'v0.3.0' 'Real bootstrap manifest should pin the companion version.'
+Assert-Equal $realBootstrapManifest.assetUrl 'https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0/Setup-MobileEdition.exe' 'Real bootstrap manifest should pin the immutable future asset URL.'
 Assert-Equal $realBootstrapManifest.sha256 'a8a7b60363f9ff2019db579e0958fb5afe6db8f0cec6a14eddaa38b8cb89a842' 'Real bootstrap manifest should pin the verified companion SHA-256.'
 
 $precedenceFixture = New-RouterFixture

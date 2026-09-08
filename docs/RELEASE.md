@@ -1,7 +1,7 @@
 # Mobile Edition Release Process
 
 This document defines the durable process for producing a fee[dB]ack Mobile
-Edition release. The prepared `v0.3.0-rc.1` candidate supports a Git
+Edition release. The `v0.3.0` release supports a Git
 clone-and-run path and a complete Windows setup bundle. A pinned public Edition
 container image is not currently available.
 
@@ -127,7 +127,8 @@ Only after Saleem approves the candidate:
 1. Commit the Edition assembly with its manifest and documentation.
 2. Build, audit, and manually test the final setup bundle and standalone Setup
    Companion from that committed state.
-3. Create and push the exact prerelease tag without advancing public `main`.
+3. Create and push the exact version tag without advancing public `main`; mark
+   release-candidate tags as prereleases.
 4. Publish the standalone EXE, its checksum, the complete setup ZIP, and the
    ZIP checksum under that tag.
 5. Verify the public assets and checksums.
@@ -145,7 +146,7 @@ tag and immutable digest when a public image is introduced.
 
 ## Current Distribution Paths
 
-The prepared `v0.3.0-rc.1` prerelease has two Windows acquisition paths:
+The `v0.3.0` release has two Windows acquisition paths:
 
 - A complete versioned setup ZIP contains the committed Edition checkout and a
   root `Setup-MobileEdition.exe`. Users extract it and run
@@ -159,9 +160,8 @@ The prepared `v0.3.0-rc.1` prerelease has two Windows acquisition paths:
 The standalone EXE is a bootstrap asset, not an independent installation. Both
 paths configure and run the same release Compose stack. The default inherited
 `docker-compose.yml` remains the Core development workflow and is not the
-Edition release command. The `v0.3.0-rc.1` visual bootstrap and setup-bundle
-paths are not publicly available until that release publishes the matching
-assets.
+Edition release command. The visual bootstrap and setup-bundle paths become
+publicly usable only after the matching versioned release assets are published.
 
 ## Local Windows Setup Bundle Candidate
 

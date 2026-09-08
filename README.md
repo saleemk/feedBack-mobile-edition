@@ -46,19 +46,18 @@ This path does not require Git. For a release that provides Windows setup
 assets:
 
 1. Open [GitHub Releases](https://github.com/saleemk/feedBack-mobile-edition/releases)
-   and download the versioned setup ZIP. For the prepared `v0.3.0-rc.1`
-   prerelease, the filename is
-   `feedback-mobile-edition-v0.3.0-rc.1-windows-setup.zip`.
+   and download the versioned setup ZIP. For `v0.3.0`, the filename is
+   `feedback-mobile-edition-v0.3.0-windows-setup.zip`.
 2. Optionally download the adjacent `.sha256` file and compare it with:
 
 ```powershell
-Get-FileHash .\feedback-mobile-edition-v0.3.0-rc.1-windows-setup.zip -Algorithm SHA256
+Get-FileHash .\feedback-mobile-edition-v0.3.0-windows-setup.zip -Algorithm SHA256
 ```
 
 3. Extract the ZIP, open the extracted folder, and double-click
    `Setup-MobileEdition.cmd`.
 
-The prerelease Companion is not digitally signed, so Windows may show an
+The Companion is not digitally signed, so Windows may show an
 unrecognized-app warning. Verify that the bundle came from this repository's
 GitHub release and that its checksum matches before running it.
 
@@ -198,6 +197,10 @@ anything that still needs setup. For structured output, add `-Json`.
 
 Offline packages belong to the browser installation on that device. Download a
 song separately on every phone or tablet where you want it available offline.
+Use a normal browser tab or installed PWA for downloads; Private Browsing can
+deny the persistent OPFS storage required by offline packages. Browsers without
+the Web Locks API use a compatible storage layout, but may store one audio copy
+per arrangement instead of sharing a single copy per song.
 Microphone features such as note detection also use this secure HTTPS address.
 
 See the official [Tailscale Serve documentation](https://tailscale.com/docs/features/tailscale-serve)
