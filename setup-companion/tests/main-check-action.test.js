@@ -92,6 +92,10 @@ function createDocument() {
     'check-action-row',
     'check-action',
     'check-action-message',
+    'update-status',
+    'update-heading',
+    'update-summary',
+    'update-versions',
     'generated-at',
     'checks-list',
     'check-view',
@@ -158,6 +162,9 @@ async function importMainWithHarness({
   libraryFolder = 'C:\\Music',
   libraryValidation = { valid: true, path: 'C:\\Music', reason: 'Library folder is usable.' },
   libraryResult = { valid: true, path: 'C:\\Music', reason: 'Library saved.' },
+  updateIdentity = { status: 'unavailable', reason: 'Update identity check disabled in this test.' },
+  latestRelease = { tag_name: 'v0.3.0', prerelease: false, draft: false },
+  fetchImpl,
   getStatus,
 }) {
   const document = createDocument();
@@ -168,6 +175,7 @@ async function importMainWithHarness({
       const result = getStatus ? await getStatus(args) : statusPayload;
       return clone(result);
     }
+    if (command === 'get_update_identity') return clone(updateIdentity);
     if (command === 'run_device_action') return typeof deviceResult === 'function'
       ? deviceResult(args)
       : clone(deviceResult);
@@ -186,6 +194,11 @@ async function importMainWithHarness({
   globalThis.document = document;
   globalThis.window = {
     __TAURI__: { core: { invoke } },
+    fetch: fetchImpl || (async () => ({
+      ok: true,
+      json: async () => clone(latestRelease),
+    })),
+    AbortController,
     setTimeout,
     clearTimeout,
     setInterval,
@@ -217,17 +230,60 @@ test('ready Check view exposes a compact device-guide action', async () => {
 test('status band grid placement uses compact action layout without reserved empty message column', async () => {
   const html = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
   const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  const tauriConfig = JSON.parse(await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
 
   assert.match(html, /class="status-heading"/);
+  assert.match(html, /class="status-text-stack"/);
+  assert.match(html, /id="update-status"/);
+  assert.match(html, /id="update-heading"/);
+  assert.match(html, /class="status-update tone-attention"/);
+  assert.doesNotMatch(html, /<section[^>]+id="update-status"/);
   assert.match(html, /id="check-action-message"[^>]*hidden/);
   assert.doesNotMatch(css, /\.status-band\s*>\s*div\s*\{/);
+  assert.doesNotMatch(css, /\.update-status\s*\{/);
+  assert.doesNotMatch(css, /min-height:\s*4\.4rem/);
   assert.doesNotMatch(css, /minmax\(9rem,\s*16rem\)/);
   assert.match(css, /\.status-heading\s*\{[\s\S]*?grid-column:\s*1;/);
   assert.match(css, /\.status-copy\s*\{[\s\S]*?grid-column:\s*2;/);
-  assert.match(css, /\.status-copy\s*>\s*p\s*\{[\s\S]*?flex:\s*1 1 auto;/);
+  assert.match(css, /\.status-text-stack\s*\{[\s\S]*?flex:\s*1 1 auto;/);
   assert.match(css, /\.check-action-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(12\.5rem,\s*auto\);/);
+  assert.match(css, /\.status-update\s*\{[\s\S]*?flex-wrap:\s*wrap;/);
+  assert.match(css, /\.status-update-label\s*\{[\s\S]*?text-transform:\s*uppercase;/);
   assert.match(css, /\.check-action-row p\[hidden\]\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /@media\s*\(max-width:\s*820px\)\s*\{[\s\S]*?\.status-copy\s*\{[\s\S]*?grid-column:\s*1;/);
+  assert.match(tauriConfig.app.security.csp, /connect-src ipc: http:\/\/ipc\.localhost https:\/\/api\.github\.com/);
+  assert.doesNotMatch(tauriConfig.app.security.csp, /https:\/\/\*/);
+});
+
+test('Check view renders read-only development update status from fixed latest release check', async () => {
+  const fetchCalls = [];
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    deviceResult: { status: 'ready', reason: 'Device guide created and opened.' },
+    updateIdentity: {
+      status: 'ready',
+      source: 'development_checkout',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Development checkout identity resolved.',
+    },
+    fetchImpl: async (url) => {
+      fetchCalls.push(url);
+      return {
+        ok: true,
+        json: async () => ({ tag_name: 'v0.3.0', prerelease: false, draft: false }),
+      };
+    },
+  });
+  await tick();
+  await tick();
+
+  assert.equal(calls.some((call) => call.command === 'get_update_identity'), true);
+  assert.deepEqual(fetchCalls, ['https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest']);
+  assert.equal(document.elements.get('update-heading').textContent, 'Development checkout');
+  assert.match(document.elements.get('update-summary').textContent, /matching the latest stable release/);
+  assert.equal(document.elements.get('update-versions').textContent, 'Local v0.3.0 / Latest stable v0.3.0');
 });
 
 test('Check device-guide action invokes open_guide and keeps busy and success messages on Check', async () => {

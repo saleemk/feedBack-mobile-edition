@@ -31,7 +31,14 @@
           <h2 id="overall-label">Loading checks</h2>
         </div>
         <div class="status-copy">
-          <p id="overall-reason">Reading the setup doctor report.</p>
+          <div class="status-text-stack">
+            <p id="overall-reason">Reading the setup doctor report.</p>
+            <div id="update-status" class="status-update tone-attention" aria-labelledby="update-heading" aria-live="polite">
+              <p id="update-heading" class="status-update-label">Checking updates</p>
+              <p id="update-summary">Checking the latest stable Mobile Edition release.</p>
+              <p id="update-versions"></p>
+            </div>
+          </div>
           <div id="check-action-row" class="check-action-row" hidden>
             <button id="check-action" class="primary-action" type="button" disabled>Connect phone / tablet</button>
             <p id="check-action-message" aria-live="polite" hidden></p>

@@ -1,0 +1,7 @@
+{
+  "schema": "feedback-mobile-edition.identity.v1",
+  "editionVersion": "0.3.0",
+  "releaseTag": "v0.3.0",
+  "checkoutKind": "development",
+  "latestStableReleaseApiUrl": "https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"
+}

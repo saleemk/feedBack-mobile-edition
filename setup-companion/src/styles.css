@@ -176,9 +176,12 @@ h1 {
   min-width: 0;
 }
 
-.status-copy > p {
+.status-text-stack {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.status-text-stack > p {
   color: #b1c0c6;
   font-size: 0.84rem;
   line-height: 1.5;
@@ -221,6 +224,39 @@ h1 {
 
 .checks-section {
   padding: 0.85rem 1.2rem 0.9rem;
+}
+
+.status-update {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.65rem;
+  margin-top: 0.35rem;
+  min-width: 0;
+  color: #82939e;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.status-update p {
+  overflow-wrap: anywhere;
+}
+
+.status-update-label {
+  color: #f6cf45;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-update.tone-ready .status-update-label {
+  color: #73f568;
+}
+
+.status-update.tone-attention .status-update-label {
+  color: #f6cf45;
+}
+
+.status-update.tone-error .status-update-label {
+  color: #ff5d67;
 }
 
 .check-action-row {

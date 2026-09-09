@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,6 +11,13 @@ const DOCTOR_RELATIVE_PATH: &[&str] = &["scripts", "Test-MobileEditionSetup.ps1"
 const LIBRARY_RELATIVE_PATH: &[&str] = &["scripts", "Set-MobileEditionLibrary.ps1"];
 const SERVER_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionServerAction.ps1"];
 const DEVICE_ACTION_RELATIVE_PATH: &[&str] = &["scripts", "Invoke-MobileEditionDeviceAction.ps1"];
+const EDITION_IDENTITY_RELATIVE_PATH: &[&str] = &["MOBILE-EDITION-IDENTITY.json"];
+const SETUP_BUNDLE_MANIFEST_RELATIVE_PATH: &[&str] = &["SETUP-BUNDLE-MANIFEST.json"];
+const EDITION_IDENTITY_SCHEMA: &str = "feedback-mobile-edition.identity.v1";
+const SETUP_BUNDLE_SCHEMA: &str = "feedback-mobile-edition.setup-bundle.v1";
+const DEVELOPMENT_CHECKOUT_KIND: &str = "development";
+const LATEST_STABLE_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest";
 const DOCKER_INSTALL_URL: &str = "https://docs.docker.com/desktop/setup/install/windows-install/";
 const TAILSCALE_INSTALL_URL: &str = "https://tailscale.com/docs/install/windows";
 #[cfg(windows)]
@@ -34,6 +42,34 @@ impl UiError {
 #[derive(Debug, Clone)]
 struct CompanionState {
     checkout: Result<PathBuf, UiError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateIdentityPayload {
+    pub status: String,
+    pub source: String,
+    pub local_version: Option<String>,
+    pub local_tag: Option<String>,
+    pub latest_stable_release_api_url: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct EditionIdentityFile {
+    schema: String,
+    edition_version: String,
+    release_tag: String,
+    checkout_kind: String,
+    latest_stable_release_api_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupBundleManifestFile {
+    schema: String,
+    edition_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +263,14 @@ fn get_library_state(state: tauri::State<'_, CompanionState>) -> Result<LibraryR
 }
 
 #[tauri::command]
+fn get_update_identity(state: tauri::State<'_, CompanionState>) -> UpdateIdentityPayload {
+    match state.checkout.clone() {
+        Ok(checkout) => update_identity_for_checkout(&checkout),
+        Err(error) => unavailable_update_identity(error.message),
+    }
+}
+
+#[tauri::command]
 fn choose_library_folder() -> Option<String> {
     rfd::FileDialog::new()
         .set_title("Choose your fee[dB]ack song library")
@@ -298,6 +342,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_setup_status,
             get_library_state,
+            get_update_identity,
             choose_library_folder,
             validate_library_folder,
             configure_library,
@@ -446,6 +491,144 @@ fn device_action_script_path(root: &Path) -> PathBuf {
     DEVICE_ACTION_RELATIVE_PATH
         .iter()
         .fold(root.to_path_buf(), |path, part| path.join(part))
+}
+
+fn edition_identity_path(root: &Path) -> PathBuf {
+    EDITION_IDENTITY_RELATIVE_PATH
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part))
+}
+
+fn setup_bundle_manifest_path(root: &Path) -> PathBuf {
+    SETUP_BUNDLE_MANIFEST_RELATIVE_PATH
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part))
+}
+
+pub fn update_identity_for_checkout(root: &Path) -> UpdateIdentityPayload {
+    let bundle_manifest = setup_bundle_manifest_path(root);
+    if bundle_manifest.is_file() {
+        return update_identity_from_bundle_manifest(&bundle_manifest);
+    }
+
+    update_identity_from_edition_identity_file(&edition_identity_path(root))
+}
+
+fn update_identity_from_bundle_manifest(path: &Path) -> UpdateIdentityPayload {
+    match fs::read_to_string(path)
+        .map_err(|_| "Setup bundle manifest could not be read.".to_string())
+        .and_then(|content| {
+            serde_json::from_str::<SetupBundleManifestFile>(&content)
+                .map_err(|_| "Setup bundle manifest is not valid.".to_string())
+        })
+        .and_then(validate_setup_bundle_manifest)
+    {
+        Ok((version, tag)) => ready_update_identity(
+            "setup_bundle",
+            version,
+            tag,
+            "Installed setup bundle identity resolved.",
+        ),
+        Err(reason) => unavailable_update_identity(reason),
+    }
+}
+
+fn update_identity_from_edition_identity_file(path: &Path) -> UpdateIdentityPayload {
+    match fs::read_to_string(path)
+        .map_err(|_| "Edition identity metadata could not be read.".to_string())
+        .and_then(|content| {
+            serde_json::from_str::<EditionIdentityFile>(&content)
+                .map_err(|_| "Edition identity metadata is not valid.".to_string())
+        })
+        .and_then(validate_edition_identity_file)
+    {
+        Ok((version, tag)) => ready_update_identity(
+            "development_checkout",
+            version,
+            tag,
+            "Development checkout identity resolved.",
+        ),
+        Err(reason) => unavailable_update_identity(reason),
+    }
+}
+
+fn validate_setup_bundle_manifest(
+    manifest: SetupBundleManifestFile,
+) -> Result<(String, String), String> {
+    if manifest.schema != SETUP_BUNDLE_SCHEMA {
+        return Err("Setup bundle manifest has an unsupported schema.".to_string());
+    }
+    let (version, tag) = normalize_local_release_version(&manifest.edition_version)
+        .ok_or_else(|| "Setup bundle manifest has an unsupported Edition version.".to_string())?;
+    Ok((version, tag))
+}
+
+fn validate_edition_identity_file(
+    manifest: EditionIdentityFile,
+) -> Result<(String, String), String> {
+    if manifest.schema != EDITION_IDENTITY_SCHEMA {
+        return Err("Edition identity metadata has an unsupported schema.".to_string());
+    }
+    if manifest.checkout_kind != DEVELOPMENT_CHECKOUT_KIND {
+        return Err("Edition identity metadata has an unsupported checkout kind.".to_string());
+    }
+    if manifest.latest_stable_release_api_url != LATEST_STABLE_RELEASE_API_URL {
+        return Err("Edition identity metadata has an unsupported release endpoint.".to_string());
+    }
+    let (version, tag) =
+        normalize_local_release_version(&manifest.edition_version).ok_or_else(|| {
+            "Edition identity metadata has an unsupported Edition version.".to_string()
+        })?;
+    if manifest.release_tag != tag {
+        return Err(
+            "Edition identity metadata release tag does not match the Edition version.".to_string(),
+        );
+    }
+    Ok((version, tag))
+}
+
+fn normalize_local_release_version(value: &str) -> Option<(String, String)> {
+    let trimmed = value.trim();
+    let version = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    if !is_strict_semver(version) {
+        return None;
+    }
+    Some((version.to_string(), format!("v{version}")))
+}
+
+fn is_strict_semver(value: &str) -> bool {
+    let parts = value.split('.').collect::<Vec<_>>();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty() && part.chars().all(|character| character.is_ascii_digit())
+        })
+}
+
+fn ready_update_identity(
+    source: &str,
+    local_version: String,
+    local_tag: String,
+    reason: &str,
+) -> UpdateIdentityPayload {
+    UpdateIdentityPayload {
+        status: "ready".to_string(),
+        source: source.to_string(),
+        local_version: Some(local_version),
+        local_tag: Some(local_tag),
+        latest_stable_release_api_url: LATEST_STABLE_RELEASE_API_URL.to_string(),
+        reason: reason.to_string(),
+    }
+}
+
+fn unavailable_update_identity(reason: impl Into<String>) -> UpdateIdentityPayload {
+    UpdateIdentityPayload {
+        status: "unavailable".to_string(),
+        source: "unavailable".to_string(),
+        local_version: None,
+        local_tag: None,
+        latest_stable_release_api_url: LATEST_STABLE_RELEASE_API_URL.to_string(),
+        reason: reason.into(),
+    }
 }
 
 pub fn get_setup_status_for_checkout(root: &Path) -> Result<SetupStatusPayload, UiError> {
@@ -924,6 +1107,22 @@ mod tests {
         root
     }
 
+    fn write_valid_identity(root: &Path, version: &str, tag: &str) {
+        fs::write(
+            root.join("MOBILE-EDITION-IDENTITY.json"),
+            format!(
+                r#"{{
+                  "schema": "feedback-mobile-edition.identity.v1",
+                  "editionVersion": "{version}",
+                  "releaseTag": "{tag}",
+                  "checkoutKind": "development",
+                  "latestStableReleaseApiUrl": "https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"
+                }}"#
+            ),
+        )
+        .expect("write identity metadata");
+    }
+
     #[test]
     fn resolves_explicit_checkout_and_validates_doctor_script() {
         let root = temp_root("explicit");
@@ -957,6 +1156,150 @@ mod tests {
             .expect_err("reject missing value");
 
         assert_eq!(error.code, "invalid_args");
+    }
+
+    #[test]
+    fn resolves_development_checkout_update_identity_from_tracked_metadata() {
+        let root = temp_root("identity");
+        write_valid_identity(&root, "0.3.0", "v0.3.0");
+
+        let payload = update_identity_for_checkout(&root);
+
+        assert_eq!(payload.status, "ready");
+        assert_eq!(payload.source, "development_checkout");
+        assert_eq!(payload.local_version.as_deref(), Some("0.3.0"));
+        assert_eq!(payload.local_tag.as_deref(), Some("v0.3.0"));
+        assert_eq!(
+            payload.latest_stable_release_api_url,
+            "https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"
+        );
+        assert!(payload.reason.contains("Development checkout"));
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn setup_bundle_manifest_takes_precedence_for_installed_identity() {
+        let root = temp_root("bundle-identity");
+        write_valid_identity(&root, "0.3.0", "v0.3.0");
+        fs::write(
+            root.join("SETUP-BUNDLE-MANIFEST.json"),
+            r#"{
+              "schema": "feedback-mobile-edition.setup-bundle.v1",
+              "bundleFormat": "zip",
+              "editionVersion": "v1.2.3",
+              "editionCommit": "abc123",
+              "companionPath": "Setup-MobileEdition.exe",
+              "companionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "generatedAtUtc": "2026-09-09T00:00:00Z"
+            }"#,
+        )
+        .expect("write bundle manifest");
+
+        let payload = update_identity_for_checkout(&root);
+
+        assert_eq!(payload.status, "ready");
+        assert_eq!(payload.source, "setup_bundle");
+        assert_eq!(payload.local_version.as_deref(), Some("1.2.3"));
+        assert_eq!(payload.local_tag.as_deref(), Some("v1.2.3"));
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn real_edition_identity_file_matches_update_contract() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest_dir
+            .parent()
+            .and_then(|setup_companion| setup_companion.parent())
+            .expect("repository root");
+
+        let payload = update_identity_for_checkout(root);
+
+        assert_eq!(payload.status, "ready");
+        assert_eq!(payload.source, "development_checkout");
+        assert_eq!(payload.local_version.as_deref(), Some("0.3.0"));
+        assert_eq!(payload.local_tag.as_deref(), Some("v0.3.0"));
+        assert_eq!(
+            payload.latest_stable_release_api_url,
+            "https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"
+        );
+    }
+
+    #[test]
+    fn malformed_update_identity_metadata_returns_unavailable_payload() {
+        let cases = [
+            (
+                "missing",
+                None,
+                "Edition identity metadata could not be read.",
+            ),
+            (
+                "malformed",
+                Some("{ not json"),
+                "Edition identity metadata is not valid.",
+            ),
+            (
+                "bad-schema",
+                Some(
+                    r#"{"schema":"feedback-mobile-edition.identity.v2","editionVersion":"0.3.0","releaseTag":"v0.3.0","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}"#,
+                ),
+                "unsupported schema",
+            ),
+            (
+                "bad-kind",
+                Some(
+                    r#"{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"0.3.0","releaseTag":"v0.3.0","checkoutKind":"release","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}"#,
+                ),
+                "unsupported checkout kind",
+            ),
+            (
+                "bad-endpoint",
+                Some(
+                    r#"{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"0.3.0","releaseTag":"v0.3.0","checkoutKind":"development","latestStableReleaseApiUrl":"https://example.com/latest"}"#,
+                ),
+                "unsupported release endpoint",
+            ),
+            (
+                "bad-version",
+                Some(
+                    r#"{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"0.3","releaseTag":"v0.3","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}"#,
+                ),
+                "unsupported Edition version",
+            ),
+            (
+                "tag-mismatch",
+                Some(
+                    r#"{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"0.3.0","releaseTag":"v0.4.0","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}"#,
+                ),
+                "release tag does not match",
+            ),
+            (
+                "extra-field",
+                Some(
+                    r#"{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"0.3.0","releaseTag":"v0.3.0","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest","extra":"nope"}"#,
+                ),
+                "Edition identity metadata is not valid.",
+            ),
+        ];
+
+        for (name, content, expected_reason) in cases {
+            let root = temp_root(name);
+            if let Some(content) = content {
+                fs::write(root.join("MOBILE-EDITION-IDENTITY.json"), content)
+                    .expect("write bad identity metadata");
+            }
+
+            let payload = update_identity_for_checkout(&root);
+
+            assert_eq!(payload.status, "unavailable", "{name}");
+            assert_eq!(payload.source, "unavailable", "{name}");
+            assert_eq!(payload.local_version, None, "{name}");
+            assert!(
+                payload.reason.contains(expected_reason),
+                "{name}: {}",
+                payload.reason
+            );
+            fs::remove_dir_all(root).expect("remove temp root");
+        }
     }
 
     #[test]

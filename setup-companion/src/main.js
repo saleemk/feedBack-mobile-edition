@@ -1,4 +1,5 @@
 import { buildCheckActionModel, buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
+import { buildCheckingUpdateModel, checkLatestStableRelease } from './update-model.js';
 import {
   PREREQUISITE_WAIT_INTERVAL_MS,
   buildPrerequisiteCompleteMessage,
@@ -18,6 +19,10 @@ const overallReason = document.querySelector('#overall-reason');
 const checkActionRow = document.querySelector('#check-action-row');
 const checkActionButton = document.querySelector('#check-action');
 const checkActionMessage = document.querySelector('#check-action-message');
+const updateStatus = document.querySelector('#update-status');
+const updateHeading = document.querySelector('#update-heading');
+const updateSummary = document.querySelector('#update-summary');
+const updateVersions = document.querySelector('#update-versions');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
 const viewButtons = [...document.querySelectorAll('[data-view]')];
@@ -68,6 +73,7 @@ let prerequisiteActionRunning = false;
 let prerequisiteActionView = '';
 let prerequisiteWait = null;
 let prerequisiteWaitTimer = 0;
+let updateSequence = 0;
 
 function setupActionRunning() {
   return serverActionRunning || deviceActionRunning || prerequisiteActionRunning;
@@ -94,6 +100,40 @@ function renderError(error) {
   checksList.replaceChildren();
   renderServerUnavailable(error);
   renderDevicesUnavailable(error);
+}
+
+function renderUpdateStatus(model) {
+  updateStatus.className = `status-update tone-${model.tone || 'attention'}`;
+  updateHeading.textContent = model.label;
+  updateSummary.textContent = model.summary;
+  const versions = [];
+  if (model.localVersion) versions.push(`Local ${model.localVersion}`);
+  if (model.latestVersion) versions.push(`Latest stable ${model.latestVersion}`);
+  updateVersions.textContent = versions.join(' / ');
+}
+
+async function refreshUpdateStatus() {
+  const sequence = ++updateSequence;
+  renderUpdateStatus(buildCheckingUpdateModel());
+  try {
+    const localIdentity = await bridge()('get_update_identity');
+    const model = await checkLatestStableRelease(localIdentity, {
+      fetchImpl: window.fetch?.bind(window) || globalThis.fetch,
+      AbortControllerImpl: window.AbortController || globalThis.AbortController,
+    });
+    if (sequence === updateSequence) renderUpdateStatus(model);
+  } catch (error) {
+    if (sequence === updateSequence) {
+      renderUpdateStatus({
+        state: 'unavailable',
+        tone: 'attention',
+        label: "Couldn't check",
+        summary: error?.message || 'The latest stable release could not be checked.',
+        localVersion: '',
+        latestVersion: '',
+      });
+    }
+  }
 }
 
 function routeToWorkflow(workflow, preferredView = '') {
@@ -380,6 +420,7 @@ function renderRow(row, index) {
 
 async function refreshChecks(options = {}) {
   const { route = false, clearMessages = false, preferredView = '' } = options;
+  void refreshUpdateStatus();
   setBusy(true);
   try {
     renderStatus(await bridge()('get_setup_status'), { route, clearMessages, preferredView });

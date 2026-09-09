@@ -10,6 +10,9 @@ Set-StrictMode -Version 2.0
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $script:BundleSchema = 'feedback-mobile-edition.setup-bundle.v1'
+$script:EditionIdentitySchema = 'feedback-mobile-edition.identity.v1'
+$script:EditionIdentityCheckoutKind = 'development'
+$script:EditionIdentityLatestStableReleaseApiUrl = 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest'
 
 function ConvertTo-MobileEditionBundleProcessArgument {
     param([string]$Argument)
@@ -130,6 +133,109 @@ function Assert-MobileEditionBundleVersion {
     if (-not $Version -or $Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
         throw "Version must be 1-64 characters and contain only letters, numbers, dots, underscores, and hyphens."
     }
+}
+
+function ConvertTo-MobileEditionIdentityVersion {
+    param([string]$Version)
+
+    if (-not $Version) {
+        return $null
+    }
+
+    $normalizedVersion = $Version.Trim()
+    if ($normalizedVersion.StartsWith('v')) {
+        $normalizedVersion = $normalizedVersion.Substring(1)
+    }
+    if ($normalizedVersion -notmatch '^\d+\.\d+\.\d+$') {
+        return $null
+    }
+
+    [pscustomobject]@{
+        version = $normalizedVersion
+        tag = "v$normalizedVersion"
+    }
+}
+
+function Assert-MobileEditionIdentityStringProperty {
+    param(
+        [object]$Identity,
+        [string]$Name,
+        [string]$Path
+    )
+
+    $property = $Identity.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        throw "Edition identity metadata is missing required property '$Name': $Path"
+    }
+    if ($property.Value -isnot [string]) {
+        throw "Edition identity metadata property '$Name' must be a string: $Path"
+    }
+    return $property.Value
+}
+
+function Assert-MobileEditionBundleIdentity {
+    param(
+        [string]$RepositoryRoot,
+        [string]$Version
+    )
+
+    $requestedStableVersion = ConvertTo-MobileEditionIdentityVersion -Version $Version
+
+    $identityPath = Join-Path -Path $RepositoryRoot -ChildPath 'MOBILE-EDITION-IDENTITY.json'
+    if (-not (Test-Path -LiteralPath $identityPath -PathType Leaf)) {
+        throw "Edition identity metadata is required for setup bundles: MOBILE-EDITION-IDENTITY.json"
+    }
+
+    try {
+        $identity = Get-Content -LiteralPath $identityPath -Raw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw "Edition identity metadata is not valid JSON: $identityPath"
+    }
+    if ($null -eq $identity -or $identity -isnot [pscustomobject]) {
+        throw "Edition identity metadata must be one JSON object: $identityPath"
+    }
+
+    $expectedProperties = @('schema', 'editionVersion', 'releaseTag', 'checkoutKind', 'latestStableReleaseApiUrl')
+    $propertyNames = @($identity.PSObject.Properties | ForEach-Object { $_.Name })
+    foreach ($expectedProperty in $expectedProperties) {
+        if (-not ($propertyNames | Where-Object { $_ -ceq $expectedProperty })) {
+            throw "Edition identity metadata is missing required property '$expectedProperty': $identityPath"
+        }
+    }
+    foreach ($propertyName in $propertyNames) {
+        if (-not ($expectedProperties | Where-Object { $_ -ceq $propertyName })) {
+            throw "Edition identity metadata contains unsupported property '$propertyName': $identityPath"
+        }
+    }
+
+    $schema = Assert-MobileEditionIdentityStringProperty -Identity $identity -Name 'schema' -Path $identityPath
+    $editionVersion = Assert-MobileEditionIdentityStringProperty -Identity $identity -Name 'editionVersion' -Path $identityPath
+    $releaseTag = Assert-MobileEditionIdentityStringProperty -Identity $identity -Name 'releaseTag' -Path $identityPath
+    $checkoutKind = Assert-MobileEditionIdentityStringProperty -Identity $identity -Name 'checkoutKind' -Path $identityPath
+    $latestStableReleaseApiUrl = Assert-MobileEditionIdentityStringProperty -Identity $identity -Name 'latestStableReleaseApiUrl' -Path $identityPath
+
+    if ($schema -cne $script:EditionIdentitySchema) {
+        throw "Edition identity metadata has unsupported schema '$schema': $identityPath"
+    }
+    if ($checkoutKind -cne $script:EditionIdentityCheckoutKind) {
+        throw "Edition identity metadata has unsupported checkout kind '$checkoutKind': $identityPath"
+    }
+    if ($latestStableReleaseApiUrl -cne $script:EditionIdentityLatestStableReleaseApiUrl) {
+        throw "Edition identity metadata has unsupported latest stable release API URL: $identityPath"
+    }
+
+    $actualVersion = ConvertTo-MobileEditionIdentityVersion -Version $editionVersion
+    if ($null -eq $actualVersion) {
+        throw "Edition identity metadata editionVersion must be a stable MAJOR.MINOR.PATCH value: $identityPath"
+    }
+    if ($releaseTag -cne $actualVersion.tag) {
+        throw "Edition identity metadata releaseTag must match editionVersion: $identityPath"
+    }
+    if ($null -ne $requestedStableVersion -and ($actualVersion.version -cne $requestedStableVersion.version -or $releaseTag -cne $requestedStableVersion.tag)) {
+        throw "Edition identity metadata version '$editionVersion' / '$releaseTag' must match requested bundle version '$Version'."
+    }
+
+    return $identity
 }
 
 function Invoke-MobileEditionBundleGit {
@@ -271,6 +377,7 @@ function New-MobileEditionSetupBundle {
 
     Assert-MobileEditionBundleCleanTrackedTree -RepositoryRoot $resolvedRepositoryRoot
     Assert-MobileEditionBundleTrackedExclusions -RepositoryRoot $resolvedRepositoryRoot
+    Assert-MobileEditionBundleIdentity -RepositoryRoot $resolvedRepositoryRoot -Version $Version | Out-Null
 
     $head = (Invoke-MobileEditionBundleGit -RepositoryRoot $resolvedRepositoryRoot -Arguments @('rev-parse', 'HEAD') | Select-Object -First 1)
     $topLevelName = "feedback-mobile-edition-$Version"
@@ -311,6 +418,7 @@ function New-MobileEditionSetupBundle {
             'LICENSE',
             'ATTRIBUTIONS.md',
             'RELEASE-MANIFEST.md',
+            'MOBILE-EDITION-IDENTITY.json',
             'scripts/Setup-MobileEdition.ps1',
             'scripts/Start-MobileEditionSetup.ps1'
         )
