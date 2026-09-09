@@ -7,14 +7,13 @@ import {
   applySetupBundleVersionInventory,
   applySetupBundleUpdateState,
   buildCheckingUpdateModel,
+  buildDefaultVersionActionModel,
   buildInstallSetupBundleUpdateActionModel,
-  buildMakeCurrentActionModel,
   buildOpenInstalledSetupBundleUpdateActionModel,
   buildReviewUpdateActionModel,
   buildStageSetupBundleUpdateActionModel,
-  buildUseBundledVersionActionModel,
-  buildVersionSelectionActionModel,
   buildUpdateStatusModel,
+  ORIGINAL_SETUP_VERSION_VALUE,
   checkLatestStableRelease,
 } from '../src/update-model.js';
 
@@ -133,9 +132,10 @@ test('setup-bundle update state exposes install and open actions explicitly', ()
 
   assert.equal(installed.state, 'installed');
   assert.equal(installed.label, 'Update installed');
+  assert.equal(installed.summary, 'Update installed. Try the new version when ready.');
   assert.equal(buildInstallSetupBundleUpdateActionModel(installed).visible, false);
   assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(installed).visible, true);
-  assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(installed).label, 'Open new version');
+  assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(installed).label, 'Try new version');
   assert.equal(buildReviewUpdateActionModel(installed).visible, true);
 
   const developmentUpdate = buildUpdateStatusModel(
@@ -171,7 +171,7 @@ test('setup-bundle install conflict state is bounded and review-only', () => {
   assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(conflict).visible, false);
 });
 
-test('setup-bundle activation state exposes Make current only for managed versions', () => {
+test('setup-bundle activation state uses clear next-launch language without default actions', () => {
   const currentBundle = buildUpdateStatusModel(
     { ...bundleIdentity, source: 'setup_bundle', localVersion: '0.3.1', localTag: 'v0.3.1' },
     { tag_name: 'v0.3.1', prerelease: false, draft: false },
@@ -193,15 +193,15 @@ test('setup-bundle activation state exposes Make current only for managed versio
   });
 
   assert.equal(activatable.state, 'activation_activatable');
-  assert.equal(activatable.label, 'Managed version');
-  assert.equal(buildMakeCurrentActionModel(activatable).visible, true);
-  assert.equal(buildMakeCurrentActionModel(activatable).tag, 'v0.3.1');
-  assert.equal(buildMakeCurrentActionModel(current).visible, false);
+  assert.equal(activatable.label, 'Setup version');
+  assert.match(activatable.summary, /This window: v0\.3\.1/);
+  assert.match(activatable.summary, /Choose the default for next time/);
   assert.equal(current.state, 'activation_current');
-  assert.equal(current.label, 'Current version');
+  assert.equal(current.label, 'Setup version');
+  assert.equal(current.summary, 'This window: v0.3.1. Opens next time: v0.3.1.');
   assert.equal(invalidCurrent.state, 'activation_invalid_current');
+  assert.equal(invalidCurrent.label, 'Needs selection');
   assert.doesNotMatch(invalidCurrent.summary, /secret|C:\\Users/);
-  assert.equal(buildMakeCurrentActionModel(invalidCurrent).visible, true);
 
   const developmentUpdate = buildUpdateStatusModel(
     { ...developmentIdentity, source: 'development_checkout', localVersion: '0.3.1', localTag: 'v0.3.1' },
@@ -211,14 +211,13 @@ test('setup-bundle activation state exposes Make current only for managed versio
     applySetupBundleActivationState(developmentUpdate, { status: 'activatable', tag: 'v0.3.1' }).state,
     'development_current',
   );
-  assert.equal(buildMakeCurrentActionModel(developmentUpdate).visible, false);
   assert.equal(
     applySetupBundleActivationState(currentBundle, { status: 'activatable', tag: 'v0.3.1/evil' }).state,
     'current',
   );
 });
 
-test('setup-bundle version inventory exposes alternatives and bundled restore explicitly', () => {
+test('setup-bundle version inventory exposes one default-version action', () => {
   const currentBundle = buildUpdateStatusModel(
     { ...bundleIdentity, source: 'setup_bundle', localVersion: '0.3.1', localTag: 'v0.3.1' },
     { tag_name: 'v0.3.1', prerelease: false, draft: false },
@@ -232,13 +231,21 @@ test('setup-bundle version inventory exposes alternatives and bundled restore ex
     reason: 'path should not be displayed',
   });
 
-  assert.equal(managed.label, 'Current version');
-  assert.equal(managed.summary, 'Original launcher will open v0.3.1 next time.');
-  assert.deepEqual(buildVersionSelectionActionModel(managed, '').options, ['v0.4.0', 'v0.2.0']);
-  assert.equal(buildVersionSelectionActionModel(managed, '').canRun, false);
-  assert.equal(buildVersionSelectionActionModel(managed, 'v0.4.0').canRun, true);
-  assert.equal(buildVersionSelectionActionModel(managed, 'v0.3.1').canRun, false);
-  assert.equal(buildUseBundledVersionActionModel(managed).visible, true);
+  const managedDefault = buildDefaultVersionActionModel(managed);
+  assert.equal(managed.label, 'Setup version');
+  assert.equal(managed.summary, 'This window: v0.3.1. Opens next time: v0.3.1.');
+  assert.deepEqual(managedDefault.options.map((option) => option.value), [
+    ORIGINAL_SETUP_VERSION_VALUE,
+    'v0.4.0',
+    'v0.3.1',
+    'v0.2.0',
+  ]);
+  assert.equal(managedDefault.selectedValue, 'v0.3.1');
+  assert.equal(managedDefault.persistedValue, 'v0.3.1');
+  assert.equal(managedDefault.canRun, false);
+  assert.equal(buildDefaultVersionActionModel(managed, 'v0.3.1').canRun, false);
+  assert.equal(buildDefaultVersionActionModel(managed, 'v0.4.0').canRun, true);
+  assert.equal(buildDefaultVersionActionModel(managed, ORIGINAL_SETUP_VERSION_VALUE).canRun, true);
 
   const bundled = applySetupBundleVersionInventory(currentBundle, {
     status: 'ready',
@@ -248,9 +255,12 @@ test('setup-bundle version inventory exposes alternatives and bundled restore ex
     runningTag: 'v0.3.1',
     reason: 'bundled',
   });
-  assert.equal(bundled.label, 'Bundled version');
-  assert.equal(buildVersionSelectionActionModel(bundled, 'v0.4.0').canRun, true);
-  assert.equal(buildUseBundledVersionActionModel(bundled).visible, false);
+  const bundledDefault = buildDefaultVersionActionModel(bundled);
+  assert.equal(bundled.label, 'Setup version');
+  assert.equal(bundled.summary, 'This window: v0.3.1. Opens next time: Original setup version.');
+  assert.equal(bundledDefault.selectedValue, ORIGINAL_SETUP_VERSION_VALUE);
+  assert.equal(bundledDefault.canRun, false);
+  assert.equal(buildDefaultVersionActionModel(bundled, 'v0.4.0').canRun, true);
 
   const invalid = applySetupBundleVersionInventory(currentBundle, {
     status: 'ready',
@@ -260,9 +270,13 @@ test('setup-bundle version inventory exposes alternatives and bundled restore ex
     runningTag: 'v0.3.1',
     reason: 'C:\\Users\\person\\secret',
   });
-  assert.equal(invalid.label, 'Current record invalid');
+  const invalidDefault = buildDefaultVersionActionModel(invalid);
+  assert.equal(invalid.label, 'Needs selection');
   assert.doesNotMatch(invalid.summary, /secret|C:\\Users/);
-  assert.equal(buildUseBundledVersionActionModel(invalid).visible, true);
+  assert.equal(invalidDefault.selectedValue, '');
+  assert.equal(invalidDefault.canRun, false);
+  assert.equal(buildDefaultVersionActionModel(invalid, ORIGINAL_SETUP_VERSION_VALUE).canRun, true);
+  assert.equal(buildDefaultVersionActionModel(invalid, 'v0.4.0').canRun, true);
 
   const runningActivatable = applySetupBundleVersionInventory(
     applySetupBundleActivationState(currentBundle, {
@@ -279,10 +293,16 @@ test('setup-bundle version inventory exposes alternatives and bundled restore ex
       reason: 'bundled',
     },
   );
-  assert.equal(buildMakeCurrentActionModel(runningActivatable).visible, true);
-  assert.deepEqual(buildVersionSelectionActionModel(runningActivatable, '').options, ['v0.4.0', 'v0.2.0']);
-  assert.equal(buildVersionSelectionActionModel(runningActivatable, 'v0.3.1').canRun, false);
-  assert.equal(buildVersionSelectionActionModel(runningActivatable, 'v0.4.0').canRun, true);
+  const runningDefault = buildDefaultVersionActionModel(runningActivatable);
+  assert.equal(runningDefault.selectedValue, ORIGINAL_SETUP_VERSION_VALUE);
+  assert.deepEqual(runningDefault.options.map((option) => option.value), [
+    ORIGINAL_SETUP_VERSION_VALUE,
+    'v0.4.0',
+    'v0.3.1',
+    'v0.2.0',
+  ]);
+  assert.equal(buildDefaultVersionActionModel(runningActivatable, 'v0.3.1').canRun, true);
+  assert.equal(buildDefaultVersionActionModel(runningActivatable, 'v0.4.0').canRun, true);
 
   const developmentUpdate = buildUpdateStatusModel(
     { ...developmentIdentity, source: 'development_checkout', localVersion: '0.3.1', localTag: 'v0.3.1' },

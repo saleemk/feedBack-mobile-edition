@@ -294,9 +294,30 @@ h1 {
   opacity: 1;
 }
 
+.default-version-field {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.7rem;
+  min-width: 0;
+  color: #f6cf45;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.default-version-field[hidden] {
+  display: none;
+}
+
+.default-version-field span {
+  white-space: nowrap;
+}
+
 .version-select {
-  flex: 0 1 9.5rem;
-  min-width: 7.5rem;
+  flex: 0 1 10.5rem;
+  min-width: 9rem;
   min-height: 1.7rem;
   border: 1px solid #f6cf45;
   border-radius: 2px;

@@ -1,5 +1,6 @@
 export const LATEST_STABLE_RELEASE_API_URL = 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest';
 export const DEFAULT_UPDATE_TIMEOUT_MS = 4000;
+export const ORIGINAL_SETUP_VERSION_VALUE = 'original-setup-version';
 
 function parseStableTag(tag) {
   if (typeof tag !== 'string') return null;
@@ -165,7 +166,7 @@ export function applySetupBundleUpdateState(updateModel, installState) {
       state: 'installed',
       tone: 'ready',
       label: 'Update installed',
-      summary: 'Update installed. Open the new version when ready.',
+      summary: 'Update installed. Try the new version when ready.',
     };
   }
   if (installState.status === 'conflict') {
@@ -204,7 +205,7 @@ export function buildOpenInstalledSetupBundleUpdateActionModel(updateModel) {
     visible,
     canRun: visible,
     tag: visible ? latestTag : '',
-    label: 'Open new version',
+    label: 'Try new version',
   };
 }
 
@@ -236,8 +237,8 @@ export function applySetupBundleActivationState(updateModel, activationState) {
       activationStatus: 'current',
       activationTag: tag,
       tone: 'ready',
-      label: 'Current version',
-      summary: 'The original setup launcher will open this version next time.',
+      label: 'Setup version',
+      summary: `This window: ${tag}. Opens next time: ${tag}.`,
     };
   }
   if (activationState.status === 'invalid_current') {
@@ -248,8 +249,8 @@ export function applySetupBundleActivationState(updateModel, activationState) {
       activationStatus: 'invalid_current',
       activationTag: tag,
       tone: 'error',
-      label: 'Current record invalid',
-      summary: 'Make this version current to replace the invalid launcher record.',
+      label: 'Needs selection',
+      summary: `This window: ${tag}. Opens next time: choose a default version.`,
     };
   }
   if (activationState.status === 'activatable') {
@@ -260,23 +261,11 @@ export function applySetupBundleActivationState(updateModel, activationState) {
       activationStatus: 'activatable',
       activationTag: tag,
       tone: 'attention',
-      label: 'Managed version',
-      summary: 'Make this version current for the original setup launcher.',
+      label: 'Setup version',
+      summary: `This window: ${tag}. Choose the default for next time.`,
     };
   }
   return updateModel;
-}
-
-export function buildMakeCurrentActionModel(updateModel) {
-  const tag = typeof updateModel?.activationTag === 'string' ? updateModel.activationTag : '';
-  const visible = ['activatable', 'invalid_current'].includes(updateModel?.activationStatus)
-    && /^v\d+\.\d+\.\d+$/.test(tag);
-  return {
-    visible,
-    canRun: visible,
-    tag: visible ? tag : '',
-    label: 'Make current',
-  };
 }
 
 export function applySetupBundleVersionInventory(updateModel, inventory) {
@@ -295,20 +284,21 @@ export function applySetupBundleVersionInventory(updateModel, inventory) {
     ? inventory.currentTag
     : '';
   const runningTag = /^v\d+\.\d+\.\d+$/.test(inventory.runningTag || '') ? inventory.runningTag : '';
+  const runningLabel = runningTag || updateModel.localVersion || 'Unknown version';
   const copy = {
     managed: {
-      label: 'Current version',
-      summary: `Original launcher will open ${currentTag} next time.`,
+      label: 'Setup version',
+      summary: `This window: ${runningLabel}. Opens next time: ${currentTag}.`,
       tone: 'ready',
     },
     bundled: {
-      label: 'Bundled version',
-      summary: 'Original launcher will use its bundled Companion next time.',
+      label: 'Setup version',
+      summary: `This window: ${runningLabel}. Opens next time: Original setup version.`,
       tone: 'ready',
     },
     invalid: {
-      label: 'Current record invalid',
-      summary: 'Choose a validated version or use bundled version for the next launch.',
+      label: 'Needs selection',
+      summary: `This window: ${runningLabel}. Opens next time: choose a default version.`,
       tone: 'error',
     },
   }[currentSource];
@@ -325,32 +315,35 @@ export function applySetupBundleVersionInventory(updateModel, inventory) {
   };
 }
 
-export function buildVersionSelectionActionModel(updateModel, selectedTag = '') {
-  const currentTag = typeof updateModel?.versionCurrentTag === 'string' ? updateModel.versionCurrentTag : '';
-  const runningMakeCurrentTag = buildMakeCurrentActionModel(updateModel).tag;
-  const options = Array.isArray(updateModel?.versionOptions)
-    ? updateModel.versionOptions.filter((tag) => tag !== currentTag
-      && tag !== runningMakeCurrentTag
-      && /^v\d+\.\d+\.\d+$/.test(tag))
+export function buildDefaultVersionActionModel(updateModel, selectedValue = null) {
+  const managedOptions = Array.isArray(updateModel?.versionOptions)
+    ? [...new Set(updateModel.versionOptions.filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag)))]
     : [];
-  const selected = options.includes(selectedTag) ? selectedTag : '';
+  const options = [
+    { value: ORIGINAL_SETUP_VERSION_VALUE, label: 'Original setup version', kind: 'original' },
+    ...managedOptions.map((tag) => ({ value: tag, label: tag, kind: 'managed' })),
+  ];
+  const currentSource = updateModel?.versionCurrentSource;
+  const currentTag = typeof updateModel?.versionCurrentTag === 'string' ? updateModel.versionCurrentTag : '';
+  const persistedValue = currentSource === 'bundled'
+    ? ORIGINAL_SETUP_VERSION_VALUE
+    : currentSource === 'managed' && /^v\d+\.\d+\.\d+$/.test(currentTag)
+      ? currentTag
+      : '';
+  const requestedValue = selectedValue === null || selectedValue === undefined
+    ? persistedValue
+    : selectedValue;
+  const selectedOption = options.find((option) => option.value === requestedValue);
+  const selected = selectedOption ? selectedOption.value : '';
   const visible = updateModel?.versionInventoryStatus === 'ready' && options.length > 0;
   return {
     visible,
-    canRun: visible && Boolean(selected),
+    canRun: visible && Boolean(selected) && selected !== persistedValue,
     options,
-    selectedTag: selected,
-    label: 'Use selected version',
-  };
-}
-
-export function buildUseBundledVersionActionModel(updateModel) {
-  const visible = updateModel?.versionInventoryStatus === 'ready'
-    && ['managed', 'invalid'].includes(updateModel?.versionCurrentSource);
-  return {
-    visible,
-    canRun: visible,
-    label: 'Use bundled version',
+    persistedValue,
+    selectedValue: selected,
+    selectedKind: selectedOption?.kind || '',
+    label: 'Save default',
   };
 }
 

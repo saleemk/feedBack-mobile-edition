@@ -40,11 +40,12 @@
               <button id="review-update" class="review-update-action" type="button" hidden disabled>Review update</button>
               <button id="download-update" class="review-update-action" type="button" hidden disabled>Download update</button>
               <button id="install-update" class="review-update-action" type="button" hidden disabled>Install update</button>
-              <button id="open-update" class="review-update-action" type="button" hidden disabled>Open new version</button>
-              <button id="make-current" class="review-update-action" type="button" hidden disabled>Make current</button>
-              <select id="version-select" class="version-select" hidden disabled aria-label="Setup version"></select>
-              <button id="use-selected-version" class="review-update-action" type="button" hidden disabled>Use selected version</button>
-              <button id="use-bundled-version" class="review-update-action" type="button" hidden disabled>Use bundled version</button>
+              <button id="open-update" class="review-update-action" type="button" hidden disabled>Try new version</button>
+              <label id="default-version-field" class="default-version-field" hidden>
+                <span>Default version</span>
+                <select id="default-version-select" class="version-select" disabled></select>
+              </label>
+              <button id="save-default-version" class="review-update-action" type="button" hidden disabled>Save default</button>
               <span id="update-progress" class="update-progress" role="status" aria-live="polite" hidden></span>
             </div>
           </div>

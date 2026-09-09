@@ -109,10 +109,9 @@ function createDocument() {
     'download-update',
     'install-update',
     'open-update',
-    'make-current',
-    'version-select',
-    'use-selected-version',
-    'use-bundled-version',
+    'default-version-field',
+    'default-version-select',
+    'save-default-version',
     'update-progress',
     'generated-at',
     'checks-list',
@@ -143,10 +142,11 @@ function createDocument() {
     'devices-action',
   ];
   const elements = new Map(ids.map((id) => [id, new FakeElement('div', id)]));
-  for (const id of ['refresh', 'check-action', 'review-update', 'download-update', 'install-update', 'open-update', 'make-current', 'use-selected-version', 'use-bundled-version', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
+  for (const id of ['refresh', 'check-action', 'review-update', 'download-update', 'install-update', 'open-update', 'save-default-version', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
     elements.get(id).tagName = 'BUTTON';
   }
-  elements.get('version-select').tagName = 'SELECT';
+  elements.get('default-version-field').tagName = 'LABEL';
+  elements.get('default-version-select').tagName = 'SELECT';
   for (const id of ['library-view', 'server-view', 'devices-view', 'check-action-row', 'server-progress']) {
     elements.get(id).hidden = true;
   }
@@ -380,10 +380,18 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.match(html, /id="download-update"[^>]*hidden[^>]*disabled/);
   assert.match(html, /id="install-update"[^>]*hidden[^>]*disabled/);
   assert.match(html, /id="open-update"[^>]*hidden[^>]*disabled/);
-  assert.match(html, /id="make-current"[^>]*hidden[^>]*disabled/);
-  assert.match(html, /id="version-select"[^>]*hidden[^>]*disabled/);
-  assert.match(html, /id="use-selected-version"[^>]*hidden[^>]*disabled/);
-  assert.match(html, /id="use-bundled-version"[^>]*hidden[^>]*disabled/);
+  assert.match(html, /Try new version/);
+  assert.match(html, /id="default-version-field"[^>]*class="default-version-field"[^>]*hidden/);
+  assert.match(html, /<span>Default version<\/span>/);
+  assert.match(html, /id="default-version-select"[^>]*class="version-select"[^>]*disabled/);
+  assert.match(html, /id="save-default-version"[^>]*hidden[^>]*disabled/);
+  assert.doesNotMatch(html, /id="make-current"/);
+  assert.doesNotMatch(html, /id="use-selected-version"/);
+  assert.doesNotMatch(html, /id="use-bundled-version"/);
+  assert.doesNotMatch(html, />Make current</);
+  assert.doesNotMatch(html, />Use selected version</);
+  assert.doesNotMatch(html, />Use bundled version</);
+  assert.doesNotMatch(html, />Open new version</);
   assert.match(html, /id="update-progress"[^>]*hidden/);
   assert.match(html, /class="status-update tone-attention"/);
   assert.doesNotMatch(html, /<section[^>]+id="update-status"/);
@@ -410,6 +418,8 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.match(css, /\.status-update-label\s*\{[\s\S]*?text-transform:\s*uppercase;/);
   assert.match(css, /\.review-update-action\s*\{[\s\S]*?min-height:\s*1\.7rem;/);
   assert.match(css, /\.review-update-action\[hidden\]\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /\.default-version-field\s*\{[\s\S]*?display:\s*inline-flex;/);
+  assert.match(css, /\.default-version-field\[hidden\]\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /\.version-select\s*\{[\s\S]*?min-height:\s*1\.7rem;/);
   assert.match(css, /\.version-select\[hidden\]\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /\.update-progress\s*\{[\s\S]*?white-space:\s*nowrap;/);
@@ -555,9 +565,8 @@ test('Check view offers setup-bundle download only for a validated newer stable 
   assert.equal(developmentHarness.document.elements.get('download-update').hidden, true);
   assert.equal(developmentHarness.document.elements.get('install-update').hidden, true);
   assert.equal(developmentHarness.document.elements.get('open-update').hidden, true);
-  assert.equal(developmentHarness.document.elements.get('version-select').hidden, true);
-  assert.equal(developmentHarness.document.elements.get('use-selected-version').hidden, true);
-  assert.equal(developmentHarness.document.elements.get('use-bundled-version').hidden, true);
+  assert.equal(developmentHarness.document.elements.get('default-version-field').hidden, true);
+  assert.equal(developmentHarness.document.elements.get('save-default-version').hidden, true);
   assert.equal(developmentHarness.calls.some((call) => call.command === 'get_setup_bundle_version_inventory'), false);
 });
 
@@ -681,7 +690,7 @@ test('Check view persists downloaded and installed setup-bundle states from nati
   assert.equal(installedHarness.document.elements.get('open-update').hidden, false);
 });
 
-test('Install update is explicit, shows progress, prevents duplicates, and reveals Open new version', async () => {
+test('Install update is explicit, shows progress, prevents duplicates, and reveals Try new version', async () => {
   let resolveInstall;
   const installAction = new Promise((resolve) => {
     resolveInstall = resolve;
@@ -734,19 +743,19 @@ test('Install update is explicit, shows progress, prevents duplicates, and revea
     status: 'ready',
     tag: 'v0.3.1',
     phase: 'installed',
-    reason: 'Update installed side by side. Open the new version when ready.',
+    reason: 'Update installed side by side. Try the new version when ready.',
   });
   await tick();
   await tick();
 
   assert.equal(document.elements.get('install-update').hidden, true);
   assert.equal(document.elements.get('open-update').hidden, false);
-  assert.equal(document.elements.get('open-update').textContent, 'Open new version');
-  assert.equal(document.elements.get('update-summary').textContent, 'Update installed. Open when ready.');
+  assert.equal(document.elements.get('open-update').textContent, 'Try new version');
+  assert.equal(document.elements.get('update-summary').textContent, 'Update installed. Try when ready.');
   assert.equal(document.elements.get('update-progress').hidden, true);
 });
 
-test('Open new version is explicit and failure stays bounded', async () => {
+test('Try new version is explicit, invokes only native open, and failure stays bounded', async () => {
   const { document, calls } = await importMainWithHarness({
     statusPayload: await fixture('ready'),
     updateIdentity: {
@@ -776,154 +785,12 @@ test('Open new version is explicit and failure stays bounded', async () => {
     calls.filter((call) => call.command === 'open_installed_setup_bundle_update').map((call) => call.args),
     [{ tag: 'v0.3.1' }],
   );
-  assert.equal(document.elements.get('update-summary').textContent, 'Could not open new version.');
+  assert.equal(document.elements.get('update-summary').textContent, 'Could not try new version.');
   assert.doesNotMatch(document.elements.get('update-summary').textContent, /secret|C:\\Users/);
   assert.equal(document.elements.get('open-update').disabled, false);
 });
 
-test('Make current activates a managed setup bundle without path arguments', async () => {
-  let resolveActivation;
-  const activationAction = new Promise((resolve) => {
-    resolveActivation = resolve;
-  });
-  let currentSource = 'bundled';
-  let activationStateCalls = 0;
-  let inventoryCalls = 0;
-  const { document, calls } = await importMainWithHarness({
-    statusPayload: await fixture('ready'),
-    updateIdentity: {
-      status: 'ready',
-      source: 'setup_bundle',
-      localVersion: '0.3.1',
-      localTag: 'v0.3.1',
-      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
-      reason: 'Installed setup bundle identity resolved.',
-    },
-    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
-    updateActivationState: () => {
-      activationStateCalls += 1;
-      return {
-        status: currentSource === 'managed' ? 'current' : 'activatable',
-        tag: 'v0.3.1',
-        reason: currentSource === 'managed'
-          ? 'The original setup launcher will open this version next time.'
-          : 'Make this version current for the original setup launcher.',
-      };
-    },
-    versionInventory: () => {
-      inventoryCalls += 1;
-      return {
-        status: 'ready',
-        versions: [{ tag: 'v0.4.0' }, { tag: 'v0.3.1' }, { tag: 'v0.2.0' }],
-        currentSource,
-        currentTag: currentSource === 'managed' ? 'v0.3.1' : '',
-        runningTag: 'v0.3.1',
-        reason: currentSource === 'managed'
-          ? 'The original setup launcher will open v0.3.1 next time.'
-          : 'The original setup launcher will use its bundled Companion next time.',
-      };
-    },
-    updateActivationResult: () => activationAction.then((payload) => {
-      currentSource = 'managed';
-      return payload;
-    }),
-  });
-  await tick();
-  await tick();
-
-  const makeCurrent = document.elements.get('make-current');
-  assert.equal(document.elements.get('update-heading').textContent, 'Bundled version');
-  assert.equal(makeCurrent.hidden, false);
-  assert.equal(makeCurrent.disabled, false);
-  assert.equal(makeCurrent.textContent, 'Make current');
-
-  makeCurrent.click();
-  await tick();
-
-  assert.deepEqual(
-    calls.filter((call) => call.command === 'activate_setup_bundle_current').map((call) => call.args),
-    [{}],
-  );
-  assert.equal(makeCurrent.disabled, true);
-  assert.equal(makeCurrent.textContent, 'Activating...');
-
-  makeCurrent.click();
-  await tick();
-  assert.equal(calls.filter((call) => call.command === 'activate_setup_bundle_current').length, 1);
-
-  resolveActivation({
-    status: 'current',
-    tag: 'v0.3.1',
-    reason: 'Current version saved. The original setup launcher will open this version next time.',
-  });
-  await tick();
-  await tick();
-  await tick();
-
-  assert.equal(document.elements.get('update-heading').textContent, 'Current version');
-  assert.equal(document.elements.get('update-summary').textContent, 'Current version saved. Original launcher will open this version next time.');
-  assert.equal(activationStateCalls, 2);
-  assert.equal(inventoryCalls, 2);
-  assert.equal(makeCurrent.hidden, true);
-  assert.deepEqual(
-    document.elements.get('version-select').children.map((child) => child.value),
-    ['', 'v0.4.0', 'v0.2.0'],
-  );
-});
-
-test('Make current remains available when latest-release fetch fails', async () => {
-  let activationStateCalls = 0;
-  const { document, calls } = await importMainWithHarness({
-    statusPayload: await fixture('ready'),
-    updateIdentity: {
-      status: 'ready',
-      source: 'setup_bundle',
-      localVersion: '0.3.1',
-      localTag: 'v0.3.1',
-      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
-      reason: 'Installed setup bundle identity resolved.',
-    },
-    updateActivationState: () => {
-      activationStateCalls += 1;
-      return {
-        status: 'activatable',
-        tag: 'v0.3.1',
-        reason: 'Make this version current for the original setup launcher.',
-      };
-    },
-    versionInventory: {
-      status: 'ready',
-      versions: [{ tag: 'v0.4.0' }, { tag: 'v0.3.1' }, { tag: 'v0.2.0' }],
-      currentSource: 'bundled',
-      currentTag: '',
-      runningTag: 'v0.3.1',
-      reason: 'The original setup launcher will use its bundled Companion next time.',
-    },
-    fetchImpl: async () => {
-      throw new Error('simulated latest-release outage');
-    },
-  });
-  await tick();
-  await tick();
-  await tick();
-
-  const makeCurrent = document.elements.get('make-current');
-  assert.equal(activationStateCalls, 1);
-  assert.equal(document.elements.get('update-heading').textContent, 'Bundled version');
-  assert.equal(document.elements.get('update-summary').textContent, 'Original launcher will use its bundled Companion next time.');
-  assert.equal(document.elements.get('update-versions').textContent, 'Local v0.3.1');
-  assert.equal(makeCurrent.hidden, false);
-  assert.equal(makeCurrent.disabled, false);
-  assert.equal(makeCurrent.textContent, 'Make current');
-  assert.deepEqual(
-    document.elements.get('version-select').children.map((child) => child.value),
-    ['', 'v0.4.0', 'v0.2.0'],
-  );
-  assert.equal(calls.some((call) => call.command === 'activate_setup_bundle_current'), false);
-  assert.equal(calls.some((call) => call.command === 'select_setup_bundle_version_current'), false);
-});
-
-test('Version selection remains available offline and changes only after explicit click', async () => {
+test('Default version selector remains available offline and saves a managed version explicitly', async () => {
   let resolveSelection;
   const selectionAction = new Promise((resolve) => {
     resolveSelection = resolve;
@@ -974,33 +841,49 @@ test('Version selection remains available offline and changes only after explici
   await tick();
   await tick();
 
-  const select = document.elements.get('version-select');
-  const useSelected = document.elements.get('use-selected-version');
+  const field = document.elements.get('default-version-field');
+  const select = document.elements.get('default-version-select');
+  const save = document.elements.get('save-default-version');
   assert.equal(calls.filter((call) => call.command === 'get_setup_bundle_version_inventory').length, 1);
-  assert.equal(document.elements.get('update-heading').textContent, 'Current version');
-  assert.equal(document.elements.get('update-summary').textContent, 'Original launcher will open v0.3.1 next time.');
+  assert.equal(document.elements.get('update-heading').textContent, 'Setup version');
+  assert.equal(document.elements.get('update-summary').textContent, 'This window: v0.3.1. Opens next time: v0.3.1.');
   assert.equal(document.elements.get('update-versions').textContent, 'Local v0.3.1');
-  assert.equal(select.hidden, false);
-  assert.deepEqual(select.children.map((child) => child.value), ['', 'v0.4.0', 'v0.2.0']);
-  assert.equal(useSelected.disabled, true);
+  assert.equal(field.hidden, false);
+  assert.deepEqual(select.children.map((child) => child.value), [
+    'original-setup-version',
+    'v0.4.0',
+    'v0.3.1',
+    'v0.2.0',
+  ]);
+  assert.deepEqual(select.children.map((child) => child.textContent), [
+    'Original setup version',
+    'v0.4.0',
+    'v0.3.1',
+    'v0.2.0',
+  ]);
+  assert.equal(select.value, 'v0.3.1');
+  assert.equal(save.hidden, false);
+  assert.equal(save.disabled, true);
   assert.equal(calls.some((call) => call.command === 'select_setup_bundle_version_current'), false);
+  assert.equal(calls.some((call) => call.command === 'restore_bundled_setup_current'), false);
+  assert.equal(calls.some((call) => call.command === 'activate_setup_bundle_current'), false);
 
   select.change('v0.4.0');
   await tick();
-  assert.equal(useSelected.disabled, false);
-  assert.equal(useSelected.dataset.versionTag, 'v0.4.0');
+  assert.equal(save.disabled, false);
+  assert.equal(save.dataset.defaultVersion, 'v0.4.0');
   assert.equal(calls.some((call) => call.command === 'select_setup_bundle_version_current'), false);
 
-  useSelected.click();
+  save.click();
   await tick();
   assert.deepEqual(
     calls.filter((call) => call.command === 'select_setup_bundle_version_current').map((call) => call.args),
     [{ tag: 'v0.4.0' }],
   );
   assert.equal(select.disabled, true);
-  assert.equal(useSelected.textContent, 'Saving...');
+  assert.equal(save.textContent, 'Saving...');
 
-  useSelected.click();
+  save.click();
   await tick();
   assert.equal(calls.filter((call) => call.command === 'select_setup_bundle_version_current').length, 1);
 
@@ -1022,15 +905,21 @@ test('Version selection remains available offline and changes only after explici
   await tick();
   await tick();
 
-  assert.equal(document.elements.get('update-heading').textContent, 'Current version');
-  assert.equal(document.elements.get('update-summary').textContent, 'Current version saved. The original setup launcher will open v0.4.0 next time.');
+  assert.equal(document.elements.get('update-heading').textContent, 'Setup version');
+  assert.equal(document.elements.get('update-summary').textContent, 'Default saved. Opens next time: v0.4.0.');
   assert.equal(activationStateCalls, 2);
   assert.equal(inventoryCalls, 2);
-  assert.equal(document.elements.get('make-current').hidden, false);
-  assert.deepEqual(select.children.map((child) => child.value), ['', 'v0.2.0']);
+  assert.deepEqual(select.children.map((child) => child.value), [
+    'original-setup-version',
+    'v0.4.0',
+    'v0.3.1',
+    'v0.2.0',
+  ]);
+  assert.equal(select.value, 'v0.4.0');
+  assert.equal(save.disabled, true);
 });
 
-test('Bundled fallback restore is explicit and does not launch or control services', async () => {
+test('Default version selector restores the original setup version explicitly', async () => {
   let currentSource = 'managed';
   let activationStateCalls = 0;
   let inventoryCalls = 0;
@@ -1088,10 +977,17 @@ test('Bundled fallback restore is explicit and does not launch or control servic
   await tick();
   await tick();
 
-  const restore = document.elements.get('use-bundled-version');
-  assert.equal(restore.hidden, false);
-  assert.equal(restore.disabled, false);
-  restore.click();
+  const select = document.elements.get('default-version-select');
+  const save = document.elements.get('save-default-version');
+  assert.equal(document.elements.get('update-heading').textContent, 'Setup version');
+  assert.equal(document.elements.get('update-summary').textContent, 'This window: v0.3.1. Opens next time: v0.3.1.');
+  assert.equal(select.value, 'v0.3.1');
+  assert.equal(save.disabled, true);
+
+  select.change('original-setup-version');
+  await tick();
+  assert.equal(save.disabled, false);
+  save.click();
   await tick();
   await tick();
   await tick();
@@ -1100,24 +996,22 @@ test('Bundled fallback restore is explicit and does not launch or control servic
     calls.filter((call) => call.command === 'restore_bundled_setup_current').map((call) => call.args),
     [{}],
   );
-  assert.equal(document.elements.get('update-heading').textContent, 'Bundled version');
-  assert.equal(document.elements.get('update-summary').textContent, 'Bundled version restored. The original setup launcher will use its bundled Companion next time.');
+  assert.equal(calls.some((call) => call.command === 'select_setup_bundle_version_current'), false);
+  assert.equal(document.elements.get('update-heading').textContent, 'Setup version');
+  assert.equal(document.elements.get('update-summary').textContent, 'Default saved. Opens next time: Original setup version.');
   assert.equal(activationStateCalls, 2);
   assert.equal(inventoryCalls, 2);
-  assert.equal(document.elements.get('make-current').hidden, false);
-  assert.deepEqual(
-    document.elements.get('version-select').children.map((child) => child.value),
-    ['', 'v0.4.0'],
-  );
-  assert.equal(document.elements.get('use-bundled-version').hidden, true);
+  assert.deepEqual(select.children.map((child) => child.value), ['original-setup-version', 'v0.4.0', 'v0.3.1']);
+  assert.equal(select.value, 'original-setup-version');
+  assert.equal(save.disabled, true);
   assert.equal(
     calls.some((call) => /open|docker|tailscale|server|install|stage/i.test(call.command)),
     false,
   );
 });
 
-test('Make current failures stay bounded and retryable', async () => {
-  const { document } = await importMainWithHarness({
+test('Invalid default presents no fake selection and save failures stay bounded', async () => {
+  const { document, calls } = await importMainWithHarness({
     statusPayload: await fixture('ready'),
     updateIdentity: {
       status: 'ready',
@@ -1133,26 +1027,48 @@ test('Make current failures stay bounded and retryable', async () => {
       tag: 'v0.3.1',
       reason: 'C:\\Users\\person\\secret current record failed',
     },
-    updateActivationResult: async () => {
-      const error = new Error('C:\\Users\\person\\secret activation failed');
-      error.code = 'activation_failed';
+    versionInventory: {
+      status: 'ready',
+      versions: [{ tag: 'v0.4.0' }, { tag: 'v0.3.1' }],
+      currentSource: 'invalid',
+      currentTag: '',
+      runningTag: 'v0.3.1',
+      reason: 'C:\\Users\\person\\secret current record failed',
+    },
+    versionSelectResult: async () => {
+      const error = new Error('C:\\Users\\person\\secret selection failed');
+      error.code = 'version_selection_failed';
       throw error;
     },
   });
   await tick();
   await tick();
 
-  const makeCurrent = document.elements.get('make-current');
-  assert.equal(document.elements.get('update-heading').textContent, 'Current record invalid');
-  assert.equal(makeCurrent.hidden, false);
-  makeCurrent.click();
+  const select = document.elements.get('default-version-select');
+  const save = document.elements.get('save-default-version');
+  assert.equal(document.elements.get('update-heading').textContent, 'Needs selection');
+  assert.equal(document.elements.get('update-summary').textContent, 'This window: v0.3.1. Opens next time: choose a default version.');
+  assert.doesNotMatch(document.elements.get('update-summary').textContent, /secret|C:\\Users/);
+  assert.equal(select.value, '');
+  assert.deepEqual(select.children.map((child) => child.value), ['', 'original-setup-version', 'v0.4.0', 'v0.3.1']);
+  assert.equal(save.disabled, true);
+  assert.equal(calls.some((call) => call.command === 'select_setup_bundle_version_current'), false);
+
+  select.change('v0.4.0');
+  await tick();
+  assert.equal(save.disabled, false);
+  save.click();
   await tick();
   await tick();
 
-  assert.equal(document.elements.get('update-summary').textContent, 'Could not make this version current.');
+  assert.deepEqual(
+    calls.filter((call) => call.command === 'select_setup_bundle_version_current').map((call) => call.args),
+    [{ tag: 'v0.4.0' }],
+  );
+  assert.equal(document.elements.get('update-summary').textContent, 'Could not save default version.');
   assert.doesNotMatch(document.elements.get('update-summary').textContent, /secret|C:\\Users/);
-  assert.equal(makeCurrent.hidden, false);
-  assert.equal(makeCurrent.disabled, false);
+  assert.equal(save.hidden, false);
+  assert.equal(save.disabled, false);
 });
 
 test('Download update failure stays concise and keeps retry and review available', async () => {
