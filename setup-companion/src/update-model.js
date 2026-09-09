@@ -37,6 +37,7 @@ function neutral(reason, localIdentity = null, latest = null) {
     tone: 'attention',
     label: "Couldn't check",
     summary: reason || 'The latest stable release could not be checked.',
+    localSource: localIdentity?.source || '',
     localVersion: localIdentity?.localTag || localIdentity?.localVersion || '',
     latestVersion: latest?.tag || '',
     latestTag: '',
@@ -49,6 +50,7 @@ export function buildCheckingUpdateModel() {
     tone: 'attention',
     label: 'Checking updates',
     summary: 'Checking the latest stable Mobile Edition release.',
+    localSource: '',
     localVersion: '',
     latestVersion: '',
     latestTag: '',
@@ -86,6 +88,7 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
       tone: 'ready',
       label: 'Development checkout',
       summary: `Based on ${local.tag}, matching the latest stable release.`,
+      localSource: source,
       localVersion: local.tag,
       latestVersion: latest.tag,
       latestTag: latest.tag,
@@ -97,6 +100,7 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
       tone: 'ready',
       label: 'Current stable bundle',
       summary: `${local.tag} is the latest stable Mobile Edition release.`,
+      localSource: source,
       localVersion: local.tag,
       latestVersion: latest.tag,
       latestTag: latest.tag,
@@ -108,6 +112,7 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
       tone: 'attention',
       label: 'Update available',
       summary: `${latest.tag} is newer than this ${source === 'development_checkout' ? 'development checkout' : 'installation'}.`,
+      localSource: source,
       localVersion: local.tag,
       latestVersion: latest.tag,
       latestTag: latest.tag,
@@ -118,9 +123,23 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
     tone: 'attention',
     label: 'Local version ahead',
     summary: `${local.tag} is newer than the latest stable release GitHub reported.`,
+    localSource: source,
     localVersion: local.tag,
     latestVersion: latest.tag,
     latestTag: latest.tag,
+  };
+}
+
+export function buildStageSetupBundleUpdateActionModel(updateModel) {
+  const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
+  const visible = updateModel?.state === 'available'
+    && updateModel?.localSource === 'setup_bundle'
+    && /^v\d+\.\d+\.\d+$/.test(latestTag);
+  return {
+    visible,
+    canRun: visible,
+    tag: visible ? latestTag : '',
+    label: 'Download update',
   };
 }
 

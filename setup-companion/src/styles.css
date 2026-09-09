@@ -294,6 +294,17 @@ h1 {
   opacity: 1;
 }
 
+.update-progress {
+  color: #f6cf45;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.update-progress[hidden] {
+  display: none;
+}
+
 .check-action-row {
   display: grid;
   grid-template-columns: minmax(12.5rem, auto);

@@ -5,6 +5,7 @@ import {
   LATEST_STABLE_RELEASE_API_URL,
   buildCheckingUpdateModel,
   buildReviewUpdateActionModel,
+  buildStageSetupBundleUpdateActionModel,
   buildUpdateStatusModel,
   checkLatestStableRelease,
 } from '../src/update-model.js';
@@ -74,6 +75,27 @@ test('buildReviewUpdateActionModel appears only for a valid newer stable release
   assert.equal(action.canRun, true);
   assert.equal(action.tag, 'v0.3.1');
   assert.equal(action.label, 'Review update');
+});
+
+test('buildStageSetupBundleUpdateActionModel appears only for setup-bundle updates', () => {
+  const setupBundleUpdate = buildUpdateStatusModel(
+    { ...bundleIdentity, source: 'setup_bundle', localVersion: '0.3.0', localTag: 'v0.3.0' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  const developmentUpdate = buildUpdateStatusModel(
+    { ...developmentIdentity, source: 'development_checkout', localVersion: '0.3.0', localTag: 'v0.3.0' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+
+  const action = buildStageSetupBundleUpdateActionModel(setupBundleUpdate);
+  assert.equal(action.visible, true);
+  assert.equal(action.canRun, true);
+  assert.equal(action.tag, 'v0.3.1');
+  assert.equal(action.label, 'Download update');
+
+  assert.equal(buildStageSetupBundleUpdateActionModel(developmentUpdate).visible, false);
+  assert.equal(buildStageSetupBundleUpdateActionModel(buildCheckingUpdateModel()).visible, false);
+  assert.equal(buildStageSetupBundleUpdateActionModel({ state: 'available', localSource: 'setup_bundle', latestTag: 'v0.3.1-rc.1' }).visible, false);
 });
 
 test('buildReviewUpdateActionModel hides every non-available update state', () => {

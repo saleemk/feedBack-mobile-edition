@@ -4,6 +4,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use tauri::Emitter;
+use update_staging::{
+    ensure_setup_bundle_update_target_eligible, local_update_cache_root,
+    stage_setup_bundle_update_for_tag, ReqwestUpdateDownloadSource, UpdateStagePayload,
+};
+
+mod update_staging;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -33,7 +41,7 @@ pub struct UiError {
 }
 
 impl UiError {
-    fn new(code: &str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &str, message: impl Into<String>) -> Self {
         Self {
             code: code.to_string(),
             message: message.into(),
@@ -349,6 +357,25 @@ async fn review_available_update(tag: String) -> Result<UpdateReviewPayload, UiE
         .map_err(|_| UiError::new("update_review_failed", "Update review was interrupted."))?
 }
 
+#[tauri::command]
+async fn stage_setup_bundle_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, CompanionState>,
+    tag: String,
+) -> Result<UpdateStagePayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    ensure_setup_bundle_update_target_eligible(&checkout, &tag)?;
+    let cache_root = local_update_cache_root()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut transport = ReqwestUpdateDownloadSource::new()?;
+        stage_setup_bundle_update_for_tag(&tag, &cache_root, &mut transport, |progress| {
+            let _ = app.emit("setup-bundle-update-progress", progress);
+        })
+    })
+    .await
+    .map_err(|_| UiError::new("update_stage_failed", "Update staging was interrupted."))?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -366,7 +393,8 @@ pub fn run() {
             run_server_action,
             run_device_action,
             run_prerequisite_action,
-            review_available_update
+            review_available_update,
+            stage_setup_bundle_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
@@ -771,7 +799,7 @@ where
     })
 }
 
-fn validate_stable_release_tag(tag: &str) -> Result<&str, UiError> {
+pub(crate) fn validate_stable_release_tag(tag: &str) -> Result<&str, UiError> {
     let version = tag.strip_prefix('v').ok_or_else(|| {
         UiError::new(
             "update_review_invalid_tag",

@@ -1,5 +1,10 @@
 import { buildCheckActionModel, buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
-import { buildCheckingUpdateModel, buildReviewUpdateActionModel, checkLatestStableRelease } from './update-model.js';
+import {
+  buildCheckingUpdateModel,
+  buildReviewUpdateActionModel,
+  buildStageSetupBundleUpdateActionModel,
+  checkLatestStableRelease,
+} from './update-model.js';
 import {
   PREREQUISITE_WAIT_INTERVAL_MS,
   buildPrerequisiteCompleteMessage,
@@ -24,6 +29,8 @@ const updateHeading = document.querySelector('#update-heading');
 const updateSummary = document.querySelector('#update-summary');
 const updateVersions = document.querySelector('#update-versions');
 const reviewUpdateButton = document.querySelector('#review-update');
+const downloadUpdateButton = document.querySelector('#download-update');
+const updateProgress = document.querySelector('#update-progress');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
 const viewButtons = [...document.querySelectorAll('[data-view]')];
@@ -78,8 +85,10 @@ let updateSequence = 0;
 let updateActionSequence = 0;
 let currentUpdateModel = buildCheckingUpdateModel();
 let updateActionRunning = false;
+let updateStageRunning = false;
 let updateActionMessage = '';
 let updateActionTone = '';
+let updateProgressText = '';
 
 function setupActionRunning() {
   return serverActionRunning || deviceActionRunning || prerequisiteActionRunning;
@@ -118,23 +127,37 @@ function renderUpdateStatus(model) {
   if (model.localVersion) versions.push(`Local ${model.localVersion}`);
   if (model.latestVersion) versions.push(`Latest stable ${model.latestVersion}`);
   updateVersions.textContent = versions.join(' / ');
-  renderReviewUpdateAction();
+  renderUpdateActions();
 }
 
-function renderReviewUpdateAction() {
-  const action = buildReviewUpdateActionModel(currentUpdateModel);
-  reviewUpdateButton.hidden = !action.visible;
-  reviewUpdateButton.disabled = updateActionRunning || !action.canRun;
-  reviewUpdateButton.dataset.latestTag = action.tag;
-  reviewUpdateButton.textContent = updateActionRunning ? 'Opening...' : action.label;
+function renderUpdateActions() {
+  const reviewAction = buildReviewUpdateActionModel(currentUpdateModel);
+  const stageAction = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
+  const updateBusy = updateActionRunning || updateStageRunning;
+
+  reviewUpdateButton.hidden = !reviewAction.visible;
+  reviewUpdateButton.disabled = updateBusy || !reviewAction.canRun;
+  reviewUpdateButton.dataset.latestTag = reviewAction.tag;
+  reviewUpdateButton.textContent = updateActionRunning ? 'Opening...' : reviewAction.label;
+
+  downloadUpdateButton.hidden = !(stageAction.visible || updateStageRunning);
+  downloadUpdateButton.disabled = updateBusy || !stageAction.canRun;
+  downloadUpdateButton.dataset.latestTag = stageAction.tag;
+  downloadUpdateButton.textContent = updateStageRunning ? 'Downloading...' : stageAction.label;
+
   updateSummary.textContent = updateActionMessage || currentUpdateModel.summary;
   updateSummary.className = updateActionTone ? `tone-${updateActionTone}` : '';
+  updateProgress.textContent = updateProgressText;
+  updateProgress.hidden = !updateProgressText;
 }
 
 async function refreshUpdateStatus() {
   const sequence = ++updateSequence;
-  updateActionMessage = '';
-  updateActionTone = '';
+  if (!updateStageRunning) {
+    updateActionMessage = '';
+    updateActionTone = '';
+    updateProgressText = '';
+  }
   renderUpdateStatus(buildCheckingUpdateModel());
   try {
     const localIdentity = await bridge()('get_update_identity');
@@ -160,7 +183,12 @@ async function refreshUpdateStatus() {
 
 function setUpdateActionBusy(isBusy) {
   updateActionRunning = isBusy;
-  renderReviewUpdateAction();
+  renderUpdateActions();
+}
+
+function setUpdateStageBusy(isBusy) {
+  updateStageRunning = isBusy;
+  renderUpdateActions();
 }
 
 async function reviewAvailableUpdate() {
@@ -182,6 +210,70 @@ async function reviewAvailableUpdate() {
     updateActionTone = 'error';
   } finally {
     if (operation === updateActionSequence) setUpdateActionBusy(false);
+  }
+}
+
+function formatUpdateBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function updateProgressLabel(progress) {
+  const downloaded = Number(progress?.bytesDownloaded || 0);
+  const total = Number(progress?.bytesTotal || 0);
+  if (total > 0) {
+    const percent = Math.min(100, Math.floor((downloaded / total) * 100));
+    return `${formatUpdateBytes(downloaded)} / ${formatUpdateBytes(total)} (${percent}%)`;
+  }
+  return downloaded > 0 ? formatUpdateBytes(downloaded) : '';
+}
+
+function renderUpdateStageProgress(progress) {
+  if (!updateStageRunning) return;
+  const stageAction = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
+  if (stageAction.tag && progress?.tag && progress.tag !== stageAction.tag) return;
+  updateActionMessage = progress?.label || 'Downloading update';
+  updateActionTone = 'attention';
+  updateProgressText = updateProgressLabel(progress);
+  renderUpdateActions();
+}
+
+function updateStageFailureMessage(error) {
+  const code = error?.code || '';
+  if (code.includes('download') || code.includes('overflow')) return 'Download failed. Retry update.';
+  if (code.includes('checksum') || code.includes('verification') || code.includes('cache_read')) {
+    return 'Verification failed. Retry update.';
+  }
+  return 'Could not stage update.';
+}
+
+async function stageSetupBundleUpdate() {
+  const action = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
+  if (updateStageRunning || updateActionRunning || !action.canRun) return;
+
+  const operation = ++updateActionSequence;
+  updateActionMessage = 'Downloading update';
+  updateActionTone = 'attention';
+  updateProgressText = '';
+  setUpdateStageBusy(true);
+  try {
+    const result = await bridge()('stage_setup_bundle_update', { tag: action.tag });
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = result?.phase === 'cached'
+      ? 'Cached update verified for later install.'
+      : 'Verified update ready for later install.';
+    updateActionTone = 'ready';
+    updateProgressText = '';
+  } catch (error) {
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = updateStageFailureMessage(error);
+    updateActionTone = 'error';
+    updateProgressText = '';
+  } finally {
+    if (operation === updateActionSequence) setUpdateStageBusy(false);
   }
 }
 
@@ -874,6 +966,12 @@ reviewUpdateButton.addEventListener('click', () => {
 });
 devicesActionButton.addEventListener('click', () => {
   void runDeviceAction('devices');
+});
+downloadUpdateButton.addEventListener('click', () => {
+  void stageSetupBundleUpdate();
+});
+window.__TAURI__?.event?.listen?.('setup-bundle-update-progress', (event) => {
+  renderUpdateStageProgress(event?.payload);
 });
 window.addEventListener('beforeunload', clearPrerequisiteWait);
 void refreshChecks({ route: true, clearMessages: true });
