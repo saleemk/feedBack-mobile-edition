@@ -729,7 +729,7 @@ fn validate_installed_setup_bundle(root: &Path, tag: &str) -> Result<(), UiError
     Ok(())
 }
 
-fn validate_installed_setup_bundle_in_root(
+pub(crate) fn validate_installed_setup_bundle_in_root(
     installations_root: &Path,
     final_root: &Path,
     tag: &str,

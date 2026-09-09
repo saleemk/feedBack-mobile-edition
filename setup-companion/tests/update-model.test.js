@@ -3,9 +3,11 @@ import { test } from 'node:test';
 
 import {
   LATEST_STABLE_RELEASE_API_URL,
+  applySetupBundleActivationState,
   applySetupBundleUpdateState,
   buildCheckingUpdateModel,
   buildInstallSetupBundleUpdateActionModel,
+  buildMakeCurrentActionModel,
   buildOpenInstalledSetupBundleUpdateActionModel,
   buildReviewUpdateActionModel,
   buildStageSetupBundleUpdateActionModel,
@@ -164,6 +166,53 @@ test('setup-bundle install conflict state is bounded and review-only', () => {
   assert.equal(buildStageSetupBundleUpdateActionModel(conflict).visible, false);
   assert.equal(buildInstallSetupBundleUpdateActionModel(conflict).visible, false);
   assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(conflict).visible, false);
+});
+
+test('setup-bundle activation state exposes Make current only for managed versions', () => {
+  const currentBundle = buildUpdateStatusModel(
+    { ...bundleIdentity, source: 'setup_bundle', localVersion: '0.3.1', localTag: 'v0.3.1' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  const activatable = applySetupBundleActivationState(currentBundle, {
+    status: 'activatable',
+    tag: 'v0.3.1',
+    reason: 'Make this version current for the original setup launcher.',
+  });
+  const invalidCurrent = applySetupBundleActivationState(currentBundle, {
+    status: 'invalid_current',
+    tag: 'v0.3.1',
+    reason: 'C:\\Users\\person\\secret current record failed',
+  });
+  const current = applySetupBundleActivationState(currentBundle, {
+    status: 'current',
+    tag: 'v0.3.1',
+    reason: 'The original setup launcher will open this version next time.',
+  });
+
+  assert.equal(activatable.state, 'activation_activatable');
+  assert.equal(activatable.label, 'Managed version');
+  assert.equal(buildMakeCurrentActionModel(activatable).visible, true);
+  assert.equal(buildMakeCurrentActionModel(activatable).tag, 'v0.3.1');
+  assert.equal(buildMakeCurrentActionModel(current).visible, false);
+  assert.equal(current.state, 'activation_current');
+  assert.equal(current.label, 'Current version');
+  assert.equal(invalidCurrent.state, 'activation_invalid_current');
+  assert.doesNotMatch(invalidCurrent.summary, /secret|C:\\Users/);
+  assert.equal(buildMakeCurrentActionModel(invalidCurrent).visible, true);
+
+  const developmentUpdate = buildUpdateStatusModel(
+    { ...developmentIdentity, source: 'development_checkout', localVersion: '0.3.1', localTag: 'v0.3.1' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  assert.equal(
+    applySetupBundleActivationState(developmentUpdate, { status: 'activatable', tag: 'v0.3.1' }).state,
+    'development_current',
+  );
+  assert.equal(buildMakeCurrentActionModel(developmentUpdate).visible, false);
+  assert.equal(
+    applySetupBundleActivationState(currentBundle, { status: 'activatable', tag: 'v0.3.1/evil' }).state,
+    'current',
+  );
 });
 
 test('buildReviewUpdateActionModel hides every non-available update state', () => {

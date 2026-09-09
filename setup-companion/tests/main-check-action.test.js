@@ -100,6 +100,7 @@ function createDocument() {
     'download-update',
     'install-update',
     'open-update',
+    'make-current',
     'update-progress',
     'generated-at',
     'checks-list',
@@ -130,7 +131,7 @@ function createDocument() {
     'devices-action',
   ];
   const elements = new Map(ids.map((id) => [id, new FakeElement('div', id)]));
-  for (const id of ['refresh', 'check-action', 'review-update', 'download-update', 'install-update', 'open-update', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
+  for (const id of ['refresh', 'check-action', 'review-update', 'download-update', 'install-update', 'open-update', 'make-current', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
     elements.get(id).tagName = 'BUTTON';
   }
   for (const id of ['library-view', 'server-view', 'devices-view', 'check-action-row', 'server-progress']) {
@@ -174,6 +175,8 @@ async function importMainWithHarness({
   updateInstallState,
   updateInstallResult,
   updateOpenResult,
+  updateActivationState,
+  updateActivationResult,
   fetchImpl,
   getStatus,
 }) {
@@ -228,6 +231,20 @@ async function importMainWithHarness({
         status: 'opened',
         tag: args.tag,
         reason: 'New version opened.',
+      });
+    if (command === 'get_setup_bundle_activation_state') return typeof updateActivationState === 'function'
+      ? updateActivationState(args)
+      : clone(updateActivationState || {
+        status: 'unavailable',
+        tag: '',
+        reason: 'This checkout cannot be made current.',
+      });
+    if (command === 'activate_setup_bundle_current') return typeof updateActivationResult === 'function'
+      ? updateActivationResult(args)
+      : clone(updateActivationResult || {
+        status: 'current',
+        tag: 'v0.3.1',
+        reason: 'Current version saved. The original setup launcher will open this version next time.',
       });
     if (command === 'run_device_action') return typeof deviceResult === 'function'
       ? deviceResult(args)
@@ -305,6 +322,7 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.match(html, /id="download-update"[^>]*hidden[^>]*disabled/);
   assert.match(html, /id="install-update"[^>]*hidden[^>]*disabled/);
   assert.match(html, /id="open-update"[^>]*hidden[^>]*disabled/);
+  assert.match(html, /id="make-current"[^>]*hidden[^>]*disabled/);
   assert.match(html, /id="update-progress"[^>]*hidden/);
   assert.match(html, /class="status-update tone-attention"/);
   assert.doesNotMatch(html, /<section[^>]+id="update-status"/);
@@ -694,6 +712,143 @@ test('Open new version is explicit and failure stays bounded', async () => {
   assert.equal(document.elements.get('update-summary').textContent, 'Could not open new version.');
   assert.doesNotMatch(document.elements.get('update-summary').textContent, /secret|C:\\Users/);
   assert.equal(document.elements.get('open-update').disabled, false);
+});
+
+test('Make current activates a managed setup bundle without path arguments', async () => {
+  let resolveActivation;
+  const activationAction = new Promise((resolve) => {
+    resolveActivation = resolve;
+  });
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.1',
+      localTag: 'v0.3.1',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateActivationState: {
+      status: 'activatable',
+      tag: 'v0.3.1',
+      reason: 'Make this version current for the original setup launcher.',
+    },
+    updateActivationResult: () => activationAction,
+  });
+  await tick();
+  await tick();
+
+  const makeCurrent = document.elements.get('make-current');
+  assert.equal(document.elements.get('update-heading').textContent, 'Managed version');
+  assert.equal(makeCurrent.hidden, false);
+  assert.equal(makeCurrent.disabled, false);
+  assert.equal(makeCurrent.textContent, 'Make current');
+
+  makeCurrent.click();
+  await tick();
+
+  assert.deepEqual(
+    calls.filter((call) => call.command === 'activate_setup_bundle_current').map((call) => call.args),
+    [{}],
+  );
+  assert.equal(makeCurrent.disabled, true);
+  assert.equal(makeCurrent.textContent, 'Activating...');
+
+  makeCurrent.click();
+  await tick();
+  assert.equal(calls.filter((call) => call.command === 'activate_setup_bundle_current').length, 1);
+
+  resolveActivation({
+    status: 'current',
+    tag: 'v0.3.1',
+    reason: 'Current version saved. The original setup launcher will open this version next time.',
+  });
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('update-heading').textContent, 'Current version');
+  assert.equal(document.elements.get('update-summary').textContent, 'Current version saved. Original launcher will open this version next time.');
+  assert.equal(makeCurrent.hidden, true);
+});
+
+test('Make current remains available when latest-release fetch fails', async () => {
+  let activationStateCalls = 0;
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.1',
+      localTag: 'v0.3.1',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    updateActivationState: () => {
+      activationStateCalls += 1;
+      return {
+        status: 'activatable',
+        tag: 'v0.3.1',
+        reason: 'Make this version current for the original setup launcher.',
+      };
+    },
+    fetchImpl: async () => {
+      throw new Error('simulated latest-release outage');
+    },
+  });
+  await tick();
+  await tick();
+  await tick();
+
+  const makeCurrent = document.elements.get('make-current');
+  assert.equal(activationStateCalls, 1);
+  assert.equal(document.elements.get('update-heading').textContent, 'Managed version');
+  assert.equal(document.elements.get('update-summary').textContent, 'Make this version current for the original setup launcher.');
+  assert.equal(document.elements.get('update-versions').textContent, 'Local v0.3.1');
+  assert.equal(makeCurrent.hidden, false);
+  assert.equal(makeCurrent.disabled, false);
+  assert.equal(makeCurrent.textContent, 'Make current');
+  assert.equal(calls.some((call) => call.command === 'activate_setup_bundle_current'), false);
+});
+
+test('Make current failures stay bounded and retryable', async () => {
+  const { document } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.1',
+      localTag: 'v0.3.1',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateActivationState: {
+      status: 'invalid_current',
+      tag: 'v0.3.1',
+      reason: 'C:\\Users\\person\\secret current record failed',
+    },
+    updateActivationResult: async () => {
+      const error = new Error('C:\\Users\\person\\secret activation failed');
+      error.code = 'activation_failed';
+      throw error;
+    },
+  });
+  await tick();
+  await tick();
+
+  const makeCurrent = document.elements.get('make-current');
+  assert.equal(document.elements.get('update-heading').textContent, 'Current record invalid');
+  assert.equal(makeCurrent.hidden, false);
+  makeCurrent.click();
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('update-summary').textContent, 'Could not make this version current.');
+  assert.doesNotMatch(document.elements.get('update-summary').textContent, /secret|C:\\Users/);
+  assert.equal(makeCurrent.hidden, false);
+  assert.equal(makeCurrent.disabled, false);
 });
 
 test('Download update failure stays concise and keeps retry and review available', async () => {

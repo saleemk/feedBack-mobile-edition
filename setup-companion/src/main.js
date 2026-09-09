@@ -1,11 +1,14 @@
 import { buildCheckActionModel, buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
 import {
+  applySetupBundleActivationState,
   applySetupBundleUpdateState,
   buildCheckingUpdateModel,
   buildInstallSetupBundleUpdateActionModel,
+  buildMakeCurrentActionModel,
   buildOpenInstalledSetupBundleUpdateActionModel,
   buildReviewUpdateActionModel,
   buildStageSetupBundleUpdateActionModel,
+  buildUpdateStatusModel,
   checkLatestStableRelease,
 } from './update-model.js';
 import {
@@ -35,6 +38,7 @@ const reviewUpdateButton = document.querySelector('#review-update');
 const downloadUpdateButton = document.querySelector('#download-update');
 const installUpdateButton = document.querySelector('#install-update');
 const openUpdateButton = document.querySelector('#open-update');
+const makeCurrentButton = document.querySelector('#make-current');
 const updateProgress = document.querySelector('#update-progress');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
@@ -93,6 +97,7 @@ let updateActionRunning = false;
 let updateStageRunning = false;
 let updateInstallRunning = false;
 let updateOpenRunning = false;
+let updateActivationRunning = false;
 let updateActionMessage = '';
 let updateActionTone = '';
 let updateProgressText = '';
@@ -142,7 +147,8 @@ function renderUpdateActions() {
   const stageAction = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
   const installAction = buildInstallSetupBundleUpdateActionModel(currentUpdateModel);
   const openAction = buildOpenInstalledSetupBundleUpdateActionModel(currentUpdateModel);
-  const updateBusy = updateActionRunning || updateStageRunning || updateInstallRunning || updateOpenRunning;
+  const makeCurrentAction = buildMakeCurrentActionModel(currentUpdateModel);
+  const updateBusy = updateActionRunning || updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning;
 
   reviewUpdateButton.hidden = !reviewAction.visible;
   reviewUpdateButton.disabled = updateBusy || !reviewAction.canRun;
@@ -164,6 +170,11 @@ function renderUpdateActions() {
   openUpdateButton.dataset.latestTag = openAction.tag;
   openUpdateButton.textContent = updateOpenRunning ? 'Opening...' : openAction.label;
 
+  makeCurrentButton.hidden = !(makeCurrentAction.visible || updateActivationRunning);
+  makeCurrentButton.disabled = updateBusy || !makeCurrentAction.canRun;
+  makeCurrentButton.dataset.currentTag = makeCurrentAction.tag;
+  makeCurrentButton.textContent = updateActivationRunning ? 'Activating...' : makeCurrentAction.label;
+
   updateSummary.textContent = updateActionMessage || currentUpdateModel.summary;
   updateSummary.className = updateActionTone ? `tone-${updateActionTone}` : '';
   updateProgress.textContent = updateProgressText;
@@ -172,7 +183,7 @@ function renderUpdateActions() {
 
 async function refreshUpdateStatus() {
   const sequence = ++updateSequence;
-  if (!updateStageRunning && !updateInstallRunning && !updateOpenRunning) {
+  if (!updateStageRunning && !updateInstallRunning && !updateOpenRunning && !updateActivationRunning) {
     updateActionMessage = '';
     updateActionTone = '';
     updateProgressText = '';
@@ -180,6 +191,19 @@ async function refreshUpdateStatus() {
   renderUpdateStatus(buildCheckingUpdateModel());
   try {
     const localIdentity = await bridge()('get_update_identity');
+    let activationState = null;
+    const activationStatePromise = localIdentity?.source === 'setup_bundle'
+      ? bridge()('get_setup_bundle_activation_state')
+        .then((state) => {
+          activationState = state;
+          if (sequence === updateSequence) {
+            const localModel = buildUpdateStatusModel(localIdentity, null);
+            renderUpdateStatus(applySetupBundleActivationState(localModel, state));
+          }
+          return state;
+        })
+        .catch(() => null)
+      : Promise.resolve(null);
     let model = await checkLatestStableRelease(localIdentity, {
       fetchImpl: window.fetch?.bind(window) || globalThis.fetch,
       AbortControllerImpl: window.AbortController || globalThis.AbortController,
@@ -192,6 +216,8 @@ async function refreshUpdateStatus() {
         // A failed local state check should not hide the already safe review/download path.
       }
     }
+    activationState = activationState || await activationStatePromise;
+    model = applySetupBundleActivationState(model, activationState);
     if (sequence === updateSequence) renderUpdateStatus(model);
   } catch (error) {
     if (sequence === updateSequence) {
@@ -225,6 +251,11 @@ function setUpdateInstallBusy(isBusy) {
 
 function setUpdateOpenBusy(isBusy) {
   updateOpenRunning = isBusy;
+  renderUpdateActions();
+}
+
+function setUpdateActivationBusy(isBusy) {
+  updateActivationRunning = isBusy;
   renderUpdateActions();
 }
 
@@ -317,7 +348,7 @@ function updateOpenFailureMessage(error) {
 
 async function stageSetupBundleUpdate() {
   const action = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
-  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Downloading update';
@@ -348,7 +379,7 @@ async function stageSetupBundleUpdate() {
 
 async function installSetupBundleUpdate() {
   const action = buildInstallSetupBundleUpdateActionModel(currentUpdateModel);
-  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Installing update';
@@ -377,7 +408,7 @@ async function installSetupBundleUpdate() {
 
 async function openInstalledSetupBundleUpdate() {
   const action = buildOpenInstalledSetupBundleUpdateActionModel(currentUpdateModel);
-  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Opening new version';
@@ -395,6 +426,34 @@ async function openInstalledSetupBundleUpdate() {
     updateActionTone = 'error';
   } finally {
     if (operation === updateActionSequence) setUpdateOpenBusy(false);
+  }
+}
+
+async function activateSetupBundleCurrent() {
+  const action = buildMakeCurrentActionModel(currentUpdateModel);
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
+
+  const operation = ++updateActionSequence;
+  updateActionMessage = 'Activating version';
+  updateActionTone = 'attention';
+  updateProgressText = '';
+  setUpdateActivationBusy(true);
+  try {
+    const result = await bridge()('activate_setup_bundle_current');
+    if (operation !== updateActionSequence) return;
+    currentUpdateModel = applySetupBundleActivationState(currentUpdateModel, {
+      status: 'current',
+      tag: result?.tag || action.tag,
+    });
+    updateActionMessage = 'Current version saved. Original launcher will open this version next time.';
+    updateActionTone = 'ready';
+    renderUpdateStatus(currentUpdateModel);
+  } catch (error) {
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = 'Could not make this version current.';
+    updateActionTone = 'error';
+  } finally {
+    if (operation === updateActionSequence) setUpdateActivationBusy(false);
   }
 }
 
@@ -1096,6 +1155,9 @@ installUpdateButton.addEventListener('click', () => {
 });
 openUpdateButton.addEventListener('click', () => {
   void openInstalledSetupBundleUpdate();
+});
+makeCurrentButton.addEventListener('click', () => {
+  void activateSetupBundleCurrent();
 });
 window.__TAURI__?.event?.listen?.('setup-bundle-update-progress', (event) => {
   renderUpdateStageProgress(event?.payload);

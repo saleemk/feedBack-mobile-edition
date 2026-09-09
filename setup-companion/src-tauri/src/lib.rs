@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tauri::Emitter;
+use update_activation::{
+    activate_setup_bundle_for_local_checkout, setup_bundle_activation_state_for_local_checkout,
+    ActivationPayload, ActivationStatePayload,
+};
 use update_install::{
     install_setup_bundle_update_for_tag, local_installations_root,
     open_installed_setup_bundle_update_for_tag, setup_bundle_update_state_for_tag,
@@ -15,6 +19,7 @@ use update_staging::{
     stage_setup_bundle_update_for_tag, ReqwestUpdateDownloadSource, UpdateStagePayload,
 };
 
+mod update_activation;
 mod update_install;
 mod update_staging;
 
@@ -445,6 +450,35 @@ async fn open_installed_setup_bundle_update(
     })?
 }
 
+#[tauri::command]
+async fn get_setup_bundle_activation_state(
+    state: tauri::State<'_, CompanionState>,
+) -> Result<ActivationStatePayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        setup_bundle_activation_state_for_local_checkout(&checkout)
+    })
+    .await
+    .map_err(|_| {
+        UiError::new(
+            "activation_failed",
+            "Activation state check was interrupted.",
+        )
+    })?
+}
+
+#[tauri::command]
+async fn activate_setup_bundle_current(
+    state: tauri::State<'_, CompanionState>,
+) -> Result<ActivationPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        activate_setup_bundle_for_local_checkout(&checkout)
+    })
+    .await
+    .map_err(|_| UiError::new("activation_failed", "Activation was interrupted."))?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -466,7 +500,9 @@ pub fn run() {
             stage_setup_bundle_update,
             get_setup_bundle_update_state,
             install_setup_bundle_update,
-            open_installed_setup_bundle_update
+            open_installed_setup_bundle_update,
+            get_setup_bundle_activation_state,
+            activate_setup_bundle_current
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");

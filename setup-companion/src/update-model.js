@@ -132,7 +132,8 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
 
 export function buildStageSetupBundleUpdateActionModel(updateModel) {
   const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
-  const visible = updateModel?.state === 'available'
+  const state = updateModel?.updateState || updateModel?.state;
+  const visible = state === 'available'
     && updateModel?.localSource === 'setup_bundle'
     && /^v\d+\.\d+\.\d+$/.test(latestTag);
   return {
@@ -181,7 +182,8 @@ export function applySetupBundleUpdateState(updateModel, installState) {
 
 export function buildInstallSetupBundleUpdateActionModel(updateModel) {
   const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
-  const visible = updateModel?.state === 'downloaded'
+  const state = updateModel?.updateState || updateModel?.state;
+  const visible = state === 'downloaded'
     && updateModel?.localSource === 'setup_bundle'
     && /^v\d+\.\d+\.\d+$/.test(latestTag);
   return {
@@ -194,7 +196,8 @@ export function buildInstallSetupBundleUpdateActionModel(updateModel) {
 
 export function buildOpenInstalledSetupBundleUpdateActionModel(updateModel) {
   const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
-  const visible = updateModel?.state === 'installed'
+  const state = updateModel?.updateState || updateModel?.state;
+  const visible = state === 'installed'
     && updateModel?.localSource === 'setup_bundle'
     && /^v\d+\.\d+\.\d+$/.test(latestTag);
   return {
@@ -207,13 +210,72 @@ export function buildOpenInstalledSetupBundleUpdateActionModel(updateModel) {
 
 export function buildReviewUpdateActionModel(updateModel) {
   const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
-  const visible = ['available', 'downloaded', 'installed', 'install_conflict'].includes(updateModel?.state)
+  const state = updateModel?.updateState || updateModel?.state;
+  const visible = ['available', 'downloaded', 'installed', 'install_conflict'].includes(state)
     && /^v\d+\.\d+\.\d+$/.test(latestTag);
   return {
     visible,
     canRun: visible,
     tag: visible ? latestTag : '',
     label: 'Review update',
+  };
+}
+
+export function applySetupBundleActivationState(updateModel, activationState) {
+  if (!updateModel || updateModel.localSource !== 'setup_bundle' || !activationState || activationState.status === 'unavailable') {
+    return updateModel;
+  }
+  const tag = typeof activationState.tag === 'string' ? activationState.tag : '';
+  if (!/^v\d+\.\d+\.\d+$/.test(tag)) return updateModel;
+  const updateState = updateModel.updateState || updateModel.state;
+  if (activationState.status === 'current') {
+    return {
+      ...updateModel,
+      updateState,
+      state: 'activation_current',
+      activationStatus: 'current',
+      activationTag: tag,
+      tone: 'ready',
+      label: 'Current version',
+      summary: 'The original setup launcher will open this version next time.',
+    };
+  }
+  if (activationState.status === 'invalid_current') {
+    return {
+      ...updateModel,
+      updateState,
+      state: 'activation_invalid_current',
+      activationStatus: 'invalid_current',
+      activationTag: tag,
+      tone: 'error',
+      label: 'Current record invalid',
+      summary: 'Make this version current to replace the invalid launcher record.',
+    };
+  }
+  if (activationState.status === 'activatable') {
+    return {
+      ...updateModel,
+      updateState,
+      state: 'activation_activatable',
+      activationStatus: 'activatable',
+      activationTag: tag,
+      tone: 'attention',
+      label: 'Managed version',
+      summary: 'Make this version current for the original setup launcher.',
+    };
+  }
+  return updateModel;
+}
+
+export function buildMakeCurrentActionModel(updateModel) {
+  const tag = typeof updateModel?.activationTag === 'string' ? updateModel.activationTag : '';
+  const visible = ['activatable', 'invalid_current'].includes(updateModel?.activationStatus)
+    && /^v\d+\.\d+\.\d+$/.test(tag);
+  return {
+    visible,
+    canRun: visible,
+    tag: visible ? tag : '',
+    label: 'Make current',
   };
 }
 
