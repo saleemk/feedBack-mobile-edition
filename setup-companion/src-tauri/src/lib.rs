@@ -18,6 +18,8 @@ const SETUP_BUNDLE_SCHEMA: &str = "feedback-mobile-edition.setup-bundle.v1";
 const DEVELOPMENT_CHECKOUT_KIND: &str = "development";
 const LATEST_STABLE_RELEASE_API_URL: &str =
     "https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest";
+const EDITION_RELEASE_PAGE_BASE_URL: &str =
+    "https://github.com/saleemk/feedBack-mobile-edition/releases/tag/";
 const DOCKER_INSTALL_URL: &str = "https://docs.docker.com/desktop/setup/install/windows-install/";
 const TAILSCALE_INSTALL_URL: &str = "https://tailscale.com/docs/install/windows";
 #[cfg(windows)]
@@ -215,6 +217,14 @@ pub struct PrerequisiteActionPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateReviewPayload {
+    pub status: String,
+    pub tag: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceActionPayload {
     pub action: String,
     pub status: String,
@@ -332,6 +342,13 @@ async fn run_prerequisite_action(
         })?
 }
 
+#[tauri::command]
+async fn review_available_update(tag: String) -> Result<UpdateReviewPayload, UiError> {
+    tauri::async_runtime::spawn_blocking(move || review_available_update_for_tag(&tag))
+        .await
+        .map_err(|_| UiError::new("update_review_failed", "Update review was interrupted."))?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -348,7 +365,8 @@ pub fn run() {
             configure_library,
             run_server_action,
             run_device_action,
-            run_prerequisite_action
+            run_prerequisite_action,
+            review_available_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
@@ -697,7 +715,7 @@ pub fn run_prerequisite_action_for(
                     "This prerequisite action does not have installation guidance.",
                 )
             })?;
-            open_url_in_default_browser(url)?;
+            open_prerequisite_url_in_default_browser(url)?;
             Ok(PrerequisiteActionPayload {
                 action,
                 status: "opened".to_string(),
@@ -726,6 +744,47 @@ pub fn run_prerequisite_action_for(
             })
         }
     }
+}
+
+pub fn canonical_edition_release_url_for_tag(tag: &str) -> Result<String, UiError> {
+    validate_stable_release_tag(tag)
+        .map(|validated| format!("{EDITION_RELEASE_PAGE_BASE_URL}{validated}"))
+}
+
+pub fn review_available_update_for_tag(tag: &str) -> Result<UpdateReviewPayload, UiError> {
+    review_available_update_for_tag_with_opener(tag, open_update_release_url_in_default_browser)
+}
+
+pub fn review_available_update_for_tag_with_opener<F>(
+    tag: &str,
+    opener: F,
+) -> Result<UpdateReviewPayload, UiError>
+where
+    F: FnOnce(&str) -> Result<(), UiError>,
+{
+    let canonical_url = canonical_edition_release_url_for_tag(tag)?;
+    opener(&canonical_url)?;
+    Ok(UpdateReviewPayload {
+        status: "opened".to_string(),
+        tag: tag.to_string(),
+        reason: format!("Opened the {tag} Mobile Edition release page."),
+    })
+}
+
+fn validate_stable_release_tag(tag: &str) -> Result<&str, UiError> {
+    let version = tag.strip_prefix('v').ok_or_else(|| {
+        UiError::new(
+            "update_review_invalid_tag",
+            "The latest stable release tag is not supported.",
+        )
+    })?;
+    if !is_strict_semver(version) {
+        return Err(UiError::new(
+            "update_review_invalid_tag",
+            "The latest stable release tag is not supported.",
+        ));
+    }
+    Ok(tag)
 }
 
 pub fn prerequisite_action_url(action: PrerequisiteAction) -> Option<&'static str> {
@@ -804,25 +863,46 @@ fn prerequisite_action_missing_app_reason(action: PrerequisiteAction) -> &'stati
     }
 }
 
-fn open_url_in_default_browser(url: &str) -> Result<(), UiError> {
+fn open_prerequisite_url_in_default_browser(url: &str) -> Result<(), UiError> {
+    open_url_in_default_browser(
+        url,
+        "prerequisite_url_launch_failed",
+        "Could not open installation guidance",
+        "prerequisite_action_unsupported",
+        "Opening prerequisite guidance is supported only by the Windows setup companion.",
+    )
+}
+
+fn open_update_release_url_in_default_browser(url: &str) -> Result<(), UiError> {
+    open_url_in_default_browser(
+        url,
+        "update_review_launch_failed",
+        "Could not open the release page",
+        "update_review_unsupported",
+        "Opening the release page is supported only by the Windows setup companion.",
+    )
+}
+
+fn open_url_in_default_browser(
+    url: &str,
+    launch_code: &str,
+    launch_message: &str,
+    _unsupported_code: &str,
+    _unsupported_message: &str,
+) -> Result<(), UiError> {
     #[cfg(windows)]
     {
         let mut command = Command::new("rundll32.exe");
         command.arg("url.dll,FileProtocolHandler").arg(url);
-        spawn_no_window(
-            command,
-            "prerequisite_url_launch_failed",
-            "Could not open installation guidance",
-        )
+        spawn_no_window(command, launch_code, launch_message)
     }
 
     #[cfg(not(windows))]
     {
         let _ = url;
-        Err(UiError::new(
-            "prerequisite_action_unsupported",
-            "Opening prerequisite guidance is supported only by the Windows setup companion.",
-        ))
+        let _ = launch_code;
+        let _ = launch_message;
+        Err(UiError::new(_unsupported_code, _unsupported_message))
     }
 }
 
@@ -1551,6 +1631,64 @@ mod tests {
             prerequisite_action_url(PrerequisiteAction::OpenDocker),
             None
         );
+    }
+
+    #[test]
+    fn update_review_accepts_only_strict_stable_tags() {
+        assert_eq!(
+            canonical_edition_release_url_for_tag("v1.2.3").expect("valid stable tag"),
+            "https://github.com/saleemk/feedBack-mobile-edition/releases/tag/v1.2.3"
+        );
+
+        for tag in [
+            "1.2.3",
+            "v1.2",
+            "v1.2.3-rc.1",
+            "v1.2.3/../../releases",
+            "https://github.com/saleemk/feedBack-mobile-edition/releases/tag/v1.2.3",
+            "v1.2.3?download=1",
+            " v1.2.3",
+        ] {
+            let error = canonical_edition_release_url_for_tag(tag).expect_err("reject bad tag");
+            assert_eq!(error.code, "update_review_invalid_tag", "{tag}");
+            assert!(!error.message.contains(tag), "{tag}");
+        }
+    }
+
+    #[test]
+    fn update_review_constructs_only_canonical_release_url() {
+        let mut opened_url = String::new();
+        let payload = review_available_update_for_tag_with_opener("v9.8.7", |url| {
+            opened_url = url.to_string();
+            Ok(())
+        })
+        .expect("review release");
+
+        assert_eq!(payload.status, "opened");
+        assert_eq!(payload.tag, "v9.8.7");
+        assert!(payload.reason.contains("v9.8.7"));
+        assert_eq!(
+            opened_url,
+            "https://github.com/saleemk/feedBack-mobile-edition/releases/tag/v9.8.7"
+        );
+        assert!(!opened_url.contains("api.github.com"));
+        assert!(!opened_url.contains("/download/"));
+        assert!(!opened_url.contains("/assets/"));
+    }
+
+    #[test]
+    fn update_review_launcher_failure_returns_bounded_error() {
+        let error = review_available_update_for_tag_with_opener("v1.2.3", |_url| {
+            Err(UiError::new(
+                "update_review_launch_failed",
+                "Could not open the release page: simulated browser failure",
+            ))
+        })
+        .expect_err("launcher failure");
+
+        assert_eq!(error.code, "update_review_launch_failed");
+        assert!(error.message.contains("Could not open the release page"));
+        assert!(!error.message.contains("rundll32"));
     }
 
     #[test]

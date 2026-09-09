@@ -1,5 +1,5 @@
 import { buildCheckActionModel, buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
-import { buildCheckingUpdateModel, checkLatestStableRelease } from './update-model.js';
+import { buildCheckingUpdateModel, buildReviewUpdateActionModel, checkLatestStableRelease } from './update-model.js';
 import {
   PREREQUISITE_WAIT_INTERVAL_MS,
   buildPrerequisiteCompleteMessage,
@@ -23,6 +23,7 @@ const updateStatus = document.querySelector('#update-status');
 const updateHeading = document.querySelector('#update-heading');
 const updateSummary = document.querySelector('#update-summary');
 const updateVersions = document.querySelector('#update-versions');
+const reviewUpdateButton = document.querySelector('#review-update');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
 const viewButtons = [...document.querySelectorAll('[data-view]')];
@@ -74,6 +75,11 @@ let prerequisiteActionView = '';
 let prerequisiteWait = null;
 let prerequisiteWaitTimer = 0;
 let updateSequence = 0;
+let updateActionSequence = 0;
+let currentUpdateModel = buildCheckingUpdateModel();
+let updateActionRunning = false;
+let updateActionMessage = '';
+let updateActionTone = '';
 
 function setupActionRunning() {
   return serverActionRunning || deviceActionRunning || prerequisiteActionRunning;
@@ -103,17 +109,32 @@ function renderError(error) {
 }
 
 function renderUpdateStatus(model) {
+  currentUpdateModel = model;
   updateStatus.className = `status-update tone-${model.tone || 'attention'}`;
   updateHeading.textContent = model.label;
-  updateSummary.textContent = model.summary;
+  updateSummary.textContent = updateActionMessage || model.summary;
+  updateSummary.className = updateActionTone ? `tone-${updateActionTone}` : '';
   const versions = [];
   if (model.localVersion) versions.push(`Local ${model.localVersion}`);
   if (model.latestVersion) versions.push(`Latest stable ${model.latestVersion}`);
   updateVersions.textContent = versions.join(' / ');
+  renderReviewUpdateAction();
+}
+
+function renderReviewUpdateAction() {
+  const action = buildReviewUpdateActionModel(currentUpdateModel);
+  reviewUpdateButton.hidden = !action.visible;
+  reviewUpdateButton.disabled = updateActionRunning || !action.canRun;
+  reviewUpdateButton.dataset.latestTag = action.tag;
+  reviewUpdateButton.textContent = updateActionRunning ? 'Opening...' : action.label;
+  updateSummary.textContent = updateActionMessage || currentUpdateModel.summary;
+  updateSummary.className = updateActionTone ? `tone-${updateActionTone}` : '';
 }
 
 async function refreshUpdateStatus() {
   const sequence = ++updateSequence;
+  updateActionMessage = '';
+  updateActionTone = '';
   renderUpdateStatus(buildCheckingUpdateModel());
   try {
     const localIdentity = await bridge()('get_update_identity');
@@ -131,8 +152,36 @@ async function refreshUpdateStatus() {
         summary: error?.message || 'The latest stable release could not be checked.',
         localVersion: '',
         latestVersion: '',
+        latestTag: '',
       });
     }
+  }
+}
+
+function setUpdateActionBusy(isBusy) {
+  updateActionRunning = isBusy;
+  renderReviewUpdateAction();
+}
+
+async function reviewAvailableUpdate() {
+  const action = buildReviewUpdateActionModel(currentUpdateModel);
+  if (updateActionRunning || !action.canRun) return;
+
+  const operation = ++updateActionSequence;
+  updateActionMessage = '';
+  updateActionTone = '';
+  setUpdateActionBusy(true);
+  try {
+    const result = await bridge()('review_available_update', { tag: action.tag });
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = 'Release page opened.';
+    updateActionTone = 'ready';
+  } catch (error) {
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = 'Could not open release page.';
+    updateActionTone = 'error';
+  } finally {
+    if (operation === updateActionSequence) setUpdateActionBusy(false);
   }
 }
 
@@ -819,6 +868,9 @@ applyLibraryButton.addEventListener('click', applyLibrary);
 serverActionButton.addEventListener('click', runServerAction);
 checkActionButton.addEventListener('click', () => {
   void runDeviceAction('check');
+});
+reviewUpdateButton.addEventListener('click', () => {
+  void reviewAvailableUpdate();
 });
 devicesActionButton.addEventListener('click', () => {
   void runDeviceAction('devices');

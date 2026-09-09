@@ -96,6 +96,7 @@ function createDocument() {
     'update-heading',
     'update-summary',
     'update-versions',
+    'review-update',
     'generated-at',
     'checks-list',
     'check-view',
@@ -125,7 +126,7 @@ function createDocument() {
     'devices-action',
   ];
   const elements = new Map(ids.map((id) => [id, new FakeElement('div', id)]));
-  for (const id of ['refresh', 'check-action', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
+  for (const id of ['refresh', 'check-action', 'review-update', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
     elements.get(id).tagName = 'BUTTON';
   }
   for (const id of ['library-view', 'server-view', 'devices-view', 'check-action-row', 'server-progress']) {
@@ -164,6 +165,7 @@ async function importMainWithHarness({
   libraryResult = { valid: true, path: 'C:\\Music', reason: 'Library saved.' },
   updateIdentity = { status: 'unavailable', reason: 'Update identity check disabled in this test.' },
   latestRelease = { tag_name: 'v0.3.0', prerelease: false, draft: false },
+  updateReviewResult,
   fetchImpl,
   getStatus,
 }) {
@@ -176,6 +178,13 @@ async function importMainWithHarness({
       return clone(result);
     }
     if (command === 'get_update_identity') return clone(updateIdentity);
+    if (command === 'review_available_update') return typeof updateReviewResult === 'function'
+      ? updateReviewResult(args)
+      : clone(updateReviewResult || {
+        status: 'opened',
+        tag: args.tag,
+        reason: `Opened the ${args.tag} Mobile Edition release page.`,
+      });
     if (command === 'run_device_action') return typeof deviceResult === 'function'
       ? deviceResult(args)
       : clone(deviceResult);
@@ -236,12 +245,17 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.match(html, /class="status-text-stack"/);
   assert.match(html, /id="update-status"/);
   assert.match(html, /id="update-heading"/);
+  assert.match(html, /id="review-update"[^>]*hidden[^>]*disabled/);
   assert.match(html, /class="status-update tone-attention"/);
   assert.doesNotMatch(html, /<section[^>]+id="update-status"/);
+  assert.doesNotMatch(html, /status-update-message/);
+  assert.doesNotMatch(html, /download/i);
+  assert.doesNotMatch(html, /install update/i);
   assert.match(html, /id="check-action-message"[^>]*hidden/);
   assert.doesNotMatch(css, /\.status-band\s*>\s*div\s*\{/);
   assert.doesNotMatch(css, /\.update-status\s*\{/);
   assert.doesNotMatch(css, /min-height:\s*4\.4rem/);
+  assert.doesNotMatch(css, /flex-basis:\s*100%/);
   assert.doesNotMatch(css, /minmax\(9rem,\s*16rem\)/);
   assert.match(css, /\.status-heading\s*\{[\s\S]*?grid-column:\s*1;/);
   assert.match(css, /\.status-copy\s*\{[\s\S]*?grid-column:\s*2;/);
@@ -249,6 +263,8 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.match(css, /\.check-action-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(12\.5rem,\s*auto\);/);
   assert.match(css, /\.status-update\s*\{[\s\S]*?flex-wrap:\s*wrap;/);
   assert.match(css, /\.status-update-label\s*\{[\s\S]*?text-transform:\s*uppercase;/);
+  assert.match(css, /\.review-update-action\s*\{[\s\S]*?min-height:\s*1\.7rem;/);
+  assert.match(css, /\.review-update-action\[hidden\]\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /\.check-action-row p\[hidden\]\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /@media\s*\(max-width:\s*820px\)\s*\{[\s\S]*?\.status-copy\s*\{[\s\S]*?grid-column:\s*1;/);
   assert.match(tauriConfig.app.security.csp, /connect-src ipc: http:\/\/ipc\.localhost https:\/\/api\.github\.com/);
@@ -284,6 +300,153 @@ test('Check view renders read-only development update status from fixed latest r
   assert.equal(document.elements.get('update-heading').textContent, 'Development checkout');
   assert.match(document.elements.get('update-summary').textContent, /matching the latest stable release/);
   assert.equal(document.elements.get('update-versions').textContent, 'Local v0.3.0 / Latest stable v0.3.0');
+  assert.equal(document.elements.get('review-update').hidden, true);
+});
+
+test('Check view reviews only a validated newer stable release through the native tag command', async () => {
+  let resolveReview;
+  const reviewAction = new Promise((resolve) => {
+    resolveReview = resolve;
+  });
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateReviewResult: () => reviewAction,
+  });
+  await tick();
+  await tick();
+
+  const button = document.elements.get('review-update');
+  assert.equal(document.elements.get('update-heading').textContent, 'Update available');
+  assert.equal(document.elements.get('update-versions').textContent, 'Local v0.3.0 / Latest stable v0.3.1');
+  assert.equal(button.hidden, false);
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, 'Review update');
+
+  button.click();
+  await tick();
+
+  assert.deepEqual(
+    calls.filter((call) => call.command === 'review_available_update').map((call) => call.args),
+    [{ tag: 'v0.3.1' }],
+  );
+  assert.equal(button.disabled, true);
+  assert.equal(button.textContent, 'Opening...');
+
+  button.click();
+  await tick();
+  assert.equal(calls.filter((call) => call.command === 'review_available_update').length, 1);
+
+  resolveReview({
+    status: 'opened',
+    tag: 'v0.3.1',
+    reason: 'Opened the v0.3.1 Mobile Edition release page.',
+  });
+  await tick();
+  await tick();
+
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, 'Review update');
+  assert.equal(document.elements.get('update-summary').textContent, 'Release page opened.');
+  assert.equal(document.elements.get('update-summary').textContent.length <= 24, true);
+  assert.match(document.elements.get('update-summary').className, /tone-ready/);
+  assert.equal(
+    calls.some((call) => /download|install|repair|rollback/i.test(call.command)),
+    false,
+  );
+});
+
+test('Check view keeps update review failures inline and bounded', async () => {
+  const { document } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateReviewResult: async () => {
+      throw new Error('Could not open the release page: simulated browser failure');
+    },
+  });
+  await tick();
+  await tick();
+  const overallLabelBeforeReview = document.elements.get('overall-label').textContent;
+
+  document.elements.get('review-update').click();
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('overall-label').textContent, overallLabelBeforeReview);
+  assert.equal(
+    document.elements.get('update-summary').textContent,
+    'Could not open release page.',
+  );
+  assert.equal(document.elements.get('update-summary').textContent.length <= 28, true);
+  assert.doesNotMatch(document.elements.get('update-summary').textContent, /simulated browser failure/);
+  assert.match(document.elements.get('update-summary').className, /tone-error/);
+  assert.equal(document.elements.get('review-update').disabled, false);
+});
+
+test('stale update refreshes cannot expose an obsolete review action', async () => {
+  const pendingFetches = [];
+  const { document } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    fetchImpl: async () => new Promise((resolve) => {
+      pendingFetches.push(resolve);
+    }),
+  });
+  await tick();
+  assert.equal(document.elements.get('review-update').hidden, true);
+
+  document.elements.get('refresh').click();
+  await tick();
+  document.elements.get('refresh').click();
+  await tick();
+
+  pendingFetches[2]({
+    ok: true,
+    json: async () => ({ tag_name: 'v0.3.2', prerelease: false, draft: false }),
+  });
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('review-update').hidden, false);
+  assert.equal(document.elements.get('review-update').textContent, 'Review update');
+
+  pendingFetches[0]({
+    ok: true,
+    json: async () => ({ tag_name: 'v0.3.1', prerelease: false, draft: false }),
+  });
+  pendingFetches[1]({
+    ok: true,
+    json: async () => ({ tag_name: 'v0.3.0', prerelease: false, draft: false }),
+  });
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('review-update').hidden, false);
+  assert.equal(document.elements.get('review-update').textContent, 'Review update');
+  assert.equal(document.elements.get('update-versions').textContent, 'Local v0.3.0 / Latest stable v0.3.2');
 });
 
 test('Check device-guide action invokes open_guide and keeps busy and success messages on Check', async () => {

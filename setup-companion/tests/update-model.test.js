@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   LATEST_STABLE_RELEASE_API_URL,
   buildCheckingUpdateModel,
+  buildReviewUpdateActionModel,
   buildUpdateStatusModel,
   checkLatestStableRelease,
 } from '../src/update-model.js';
@@ -53,12 +54,44 @@ test('buildUpdateStatusModel compares numeric semantic versions', () => {
   );
   assert.equal(older.state, 'available');
   assert.equal(older.latestVersion, 'v0.3.10');
+  assert.equal(older.latestTag, 'v0.3.10');
 
   const newer = buildUpdateStatusModel(
     { ...bundleIdentity, localVersion: '0.10.0', localTag: 'v0.10.0' },
     { tag_name: 'v0.9.9', prerelease: false, draft: false },
   );
   assert.equal(newer.state, 'local_newer');
+});
+
+test('buildReviewUpdateActionModel appears only for a valid newer stable release', () => {
+  const available = buildUpdateStatusModel(
+    { ...bundleIdentity, localVersion: '0.3.0', localTag: 'v0.3.0' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+
+  const action = buildReviewUpdateActionModel(available);
+  assert.equal(action.visible, true);
+  assert.equal(action.canRun, true);
+  assert.equal(action.tag, 'v0.3.1');
+  assert.equal(action.label, 'Review update');
+});
+
+test('buildReviewUpdateActionModel hides every non-available update state', () => {
+  const states = [
+    buildCheckingUpdateModel(),
+    buildUpdateStatusModel(bundleIdentity, { tag_name: 'v0.3.0', prerelease: false, draft: false }),
+    buildUpdateStatusModel(developmentIdentity, { tag_name: 'v0.3.0', prerelease: false, draft: false }),
+    buildUpdateStatusModel({ ...bundleIdentity, localVersion: '0.3.2', localTag: 'v0.3.2' }, { tag_name: 'v0.3.1', prerelease: false, draft: false }),
+    buildUpdateStatusModel(bundleIdentity, { tag_name: 'v0.3.1-rc.1', prerelease: true, draft: false }),
+    { state: 'available', latestTag: 'https://example.com/release', latestVersion: 'https://example.com/release' },
+  ];
+
+  for (const model of states) {
+    const action = buildReviewUpdateActionModel(model);
+    assert.equal(action.visible, false, model.state);
+    assert.equal(action.canRun, false, model.state);
+    assert.equal(action.tag, '', model.state);
+  }
 });
 
 test('buildUpdateStatusModel treats malformed local identity and GitHub payloads neutrally', () => {

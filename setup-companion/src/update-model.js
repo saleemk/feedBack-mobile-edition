@@ -39,6 +39,7 @@ function neutral(reason, localIdentity = null, latest = null) {
     summary: reason || 'The latest stable release could not be checked.',
     localVersion: localIdentity?.localTag || localIdentity?.localVersion || '',
     latestVersion: latest?.tag || '',
+    latestTag: '',
   };
 }
 
@@ -50,6 +51,7 @@ export function buildCheckingUpdateModel() {
     summary: 'Checking the latest stable Mobile Edition release.',
     localVersion: '',
     latestVersion: '',
+    latestTag: '',
   };
 }
 
@@ -86,6 +88,7 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
       summary: `Based on ${local.tag}, matching the latest stable release.`,
       localVersion: local.tag,
       latestVersion: latest.tag,
+      latestTag: latest.tag,
     };
   }
   if (comparison === 0) {
@@ -96,6 +99,7 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
       summary: `${local.tag} is the latest stable Mobile Edition release.`,
       localVersion: local.tag,
       latestVersion: latest.tag,
+      latestTag: latest.tag,
     };
   }
   if (comparison < 0) {
@@ -106,6 +110,7 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
       summary: `${latest.tag} is newer than this ${source === 'development_checkout' ? 'development checkout' : 'installation'}.`,
       localVersion: local.tag,
       latestVersion: latest.tag,
+      latestTag: latest.tag,
     };
   }
   return {
@@ -115,6 +120,18 @@ export function buildUpdateStatusModel(localIdentity, latestRelease) {
     summary: `${local.tag} is newer than the latest stable release GitHub reported.`,
     localVersion: local.tag,
     latestVersion: latest.tag,
+    latestTag: latest.tag,
+  };
+}
+
+export function buildReviewUpdateActionModel(updateModel) {
+  const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
+  const visible = updateModel?.state === 'available' && /^v\d+\.\d+\.\d+$/.test(latestTag);
+  return {
+    visible,
+    canRun: visible,
+    tag: visible ? latestTag : '',
+    label: 'Review update',
   };
 }
 

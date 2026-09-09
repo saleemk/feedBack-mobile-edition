@@ -247,6 +247,14 @@ h1 {
   text-transform: uppercase;
 }
 
+.status-update .tone-ready {
+  color: #73f568;
+}
+
+.status-update .tone-error {
+  color: #ff5d67;
+}
+
 .status-update.tone-ready .status-update-label {
   color: #73f568;
 }
@@ -257,6 +265,33 @@ h1 {
 
 .status-update.tone-error .status-update-label {
   color: #ff5d67;
+}
+
+.review-update-action {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 1.7rem;
+  padding: 0.2rem 0.55rem;
+  border-color: #f6cf45;
+  background: #f6cf45;
+  color: #071310;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.review-update-action[hidden] {
+  display: none;
+}
+
+.review-update-action:hover:not(:disabled) {
+  background: #ffe16c;
+}
+
+.review-update-action:disabled {
+  border-color: #344451;
+  background: #203039;
+  color: #71818d;
+  opacity: 1;
 }
 
 .check-action-row {
