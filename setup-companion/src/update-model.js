@@ -143,9 +143,72 @@ export function buildStageSetupBundleUpdateActionModel(updateModel) {
   };
 }
 
+export function applySetupBundleUpdateState(updateModel, installState) {
+  const stateCanAdvance = ['available', 'downloaded', 'installed', 'install_conflict'].includes(updateModel?.state);
+  if (!updateModel || !stateCanAdvance || updateModel.localSource !== 'setup_bundle') {
+    return updateModel;
+  }
+  if (!installState || installState.tag !== updateModel.latestTag) return updateModel;
+  if (installState.status === 'downloaded') {
+    return {
+      ...updateModel,
+      state: 'downloaded',
+      tone: 'attention',
+      label: 'Update downloaded',
+      summary: 'Verified update ready to install.',
+    };
+  }
+  if (installState.status === 'installed') {
+    return {
+      ...updateModel,
+      state: 'installed',
+      tone: 'ready',
+      label: 'Update installed',
+      summary: 'Update installed. Open the new version when ready.',
+    };
+  }
+  if (installState.status === 'conflict') {
+    return {
+      ...updateModel,
+      state: 'install_conflict',
+      tone: 'error',
+      label: 'Update install conflict',
+      summary: 'A version folder already exists but is not a valid installation.',
+    };
+  }
+  return updateModel;
+}
+
+export function buildInstallSetupBundleUpdateActionModel(updateModel) {
+  const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
+  const visible = updateModel?.state === 'downloaded'
+    && updateModel?.localSource === 'setup_bundle'
+    && /^v\d+\.\d+\.\d+$/.test(latestTag);
+  return {
+    visible,
+    canRun: visible,
+    tag: visible ? latestTag : '',
+    label: 'Install update',
+  };
+}
+
+export function buildOpenInstalledSetupBundleUpdateActionModel(updateModel) {
+  const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
+  const visible = updateModel?.state === 'installed'
+    && updateModel?.localSource === 'setup_bundle'
+    && /^v\d+\.\d+\.\d+$/.test(latestTag);
+  return {
+    visible,
+    canRun: visible,
+    tag: visible ? latestTag : '',
+    label: 'Open new version',
+  };
+}
+
 export function buildReviewUpdateActionModel(updateModel) {
   const latestTag = typeof updateModel?.latestTag === 'string' ? updateModel.latestTag : '';
-  const visible = updateModel?.state === 'available' && /^v\d+\.\d+\.\d+$/.test(latestTag);
+  const visible = ['available', 'downloaded', 'installed', 'install_conflict'].includes(updateModel?.state)
+    && /^v\d+\.\d+\.\d+$/.test(latestTag);
   return {
     visible,
     canRun: visible,

@@ -1,6 +1,9 @@
 import { buildCheckActionModel, buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
 import {
+  applySetupBundleUpdateState,
   buildCheckingUpdateModel,
+  buildInstallSetupBundleUpdateActionModel,
+  buildOpenInstalledSetupBundleUpdateActionModel,
   buildReviewUpdateActionModel,
   buildStageSetupBundleUpdateActionModel,
   checkLatestStableRelease,
@@ -30,6 +33,8 @@ const updateSummary = document.querySelector('#update-summary');
 const updateVersions = document.querySelector('#update-versions');
 const reviewUpdateButton = document.querySelector('#review-update');
 const downloadUpdateButton = document.querySelector('#download-update');
+const installUpdateButton = document.querySelector('#install-update');
+const openUpdateButton = document.querySelector('#open-update');
 const updateProgress = document.querySelector('#update-progress');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
@@ -86,6 +91,8 @@ let updateActionSequence = 0;
 let currentUpdateModel = buildCheckingUpdateModel();
 let updateActionRunning = false;
 let updateStageRunning = false;
+let updateInstallRunning = false;
+let updateOpenRunning = false;
 let updateActionMessage = '';
 let updateActionTone = '';
 let updateProgressText = '';
@@ -133,7 +140,9 @@ function renderUpdateStatus(model) {
 function renderUpdateActions() {
   const reviewAction = buildReviewUpdateActionModel(currentUpdateModel);
   const stageAction = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
-  const updateBusy = updateActionRunning || updateStageRunning;
+  const installAction = buildInstallSetupBundleUpdateActionModel(currentUpdateModel);
+  const openAction = buildOpenInstalledSetupBundleUpdateActionModel(currentUpdateModel);
+  const updateBusy = updateActionRunning || updateStageRunning || updateInstallRunning || updateOpenRunning;
 
   reviewUpdateButton.hidden = !reviewAction.visible;
   reviewUpdateButton.disabled = updateBusy || !reviewAction.canRun;
@@ -145,6 +154,16 @@ function renderUpdateActions() {
   downloadUpdateButton.dataset.latestTag = stageAction.tag;
   downloadUpdateButton.textContent = updateStageRunning ? 'Downloading...' : stageAction.label;
 
+  installUpdateButton.hidden = !(installAction.visible || updateInstallRunning);
+  installUpdateButton.disabled = updateBusy || !installAction.canRun;
+  installUpdateButton.dataset.latestTag = installAction.tag;
+  installUpdateButton.textContent = updateInstallRunning ? 'Installing...' : installAction.label;
+
+  openUpdateButton.hidden = !(openAction.visible || updateOpenRunning);
+  openUpdateButton.disabled = updateBusy || !openAction.canRun;
+  openUpdateButton.dataset.latestTag = openAction.tag;
+  openUpdateButton.textContent = updateOpenRunning ? 'Opening...' : openAction.label;
+
   updateSummary.textContent = updateActionMessage || currentUpdateModel.summary;
   updateSummary.className = updateActionTone ? `tone-${updateActionTone}` : '';
   updateProgress.textContent = updateProgressText;
@@ -153,7 +172,7 @@ function renderUpdateActions() {
 
 async function refreshUpdateStatus() {
   const sequence = ++updateSequence;
-  if (!updateStageRunning) {
+  if (!updateStageRunning && !updateInstallRunning && !updateOpenRunning) {
     updateActionMessage = '';
     updateActionTone = '';
     updateProgressText = '';
@@ -161,10 +180,18 @@ async function refreshUpdateStatus() {
   renderUpdateStatus(buildCheckingUpdateModel());
   try {
     const localIdentity = await bridge()('get_update_identity');
-    const model = await checkLatestStableRelease(localIdentity, {
+    let model = await checkLatestStableRelease(localIdentity, {
       fetchImpl: window.fetch?.bind(window) || globalThis.fetch,
       AbortControllerImpl: window.AbortController || globalThis.AbortController,
     });
+    if (model.state === 'available' && model.localSource === 'setup_bundle' && model.latestTag) {
+      try {
+        const installState = await bridge()('get_setup_bundle_update_state', { tag: model.latestTag });
+        model = applySetupBundleUpdateState(model, installState);
+      } catch (_error) {
+        // A failed local state check should not hide the already safe review/download path.
+      }
+    }
     if (sequence === updateSequence) renderUpdateStatus(model);
   } catch (error) {
     if (sequence === updateSequence) {
@@ -188,6 +215,16 @@ function setUpdateActionBusy(isBusy) {
 
 function setUpdateStageBusy(isBusy) {
   updateStageRunning = isBusy;
+  renderUpdateActions();
+}
+
+function setUpdateInstallBusy(isBusy) {
+  updateInstallRunning = isBusy;
+  renderUpdateActions();
+}
+
+function setUpdateOpenBusy(isBusy) {
+  updateOpenRunning = isBusy;
   renderUpdateActions();
 }
 
@@ -241,6 +278,19 @@ function renderUpdateStageProgress(progress) {
   renderUpdateActions();
 }
 
+function renderUpdateInstallProgress(progress) {
+  if (!updateInstallRunning) return;
+  const installAction = buildInstallSetupBundleUpdateActionModel(currentUpdateModel);
+  if (installAction.tag && progress?.tag && progress.tag !== installAction.tag) return;
+  updateActionMessage = progress?.label || 'Installing update';
+  updateActionTone = 'attention';
+  updateProgressText = updateProgressLabel({
+    bytesDownloaded: progress?.bytesProcessed,
+    bytesTotal: progress?.bytesTotal,
+  });
+  renderUpdateActions();
+}
+
 function updateStageFailureMessage(error) {
   const code = error?.code || '';
   if (code.includes('download') || code.includes('overflow')) return 'Download failed. Retry update.';
@@ -250,9 +300,24 @@ function updateStageFailureMessage(error) {
   return 'Could not stage update.';
 }
 
+function updateInstallFailureMessage(error) {
+  const code = error?.code || '';
+  if (code.includes('conflict')) return 'Installation conflict. Review update.';
+  if (code.includes('cache') || code.includes('verification')) return 'Verification failed. Retry update.';
+  if (code.includes('archive') || code.includes('install')) return 'Installation failed. Retry update.';
+  return 'Could not install update.';
+}
+
+function updateOpenFailureMessage(error) {
+  const code = error?.code || '';
+  if (code.includes('launch')) return 'Could not open new version.';
+  if (code.includes('install')) return 'Installed update could not be verified.';
+  return 'Could not open new version.';
+}
+
 async function stageSetupBundleUpdate() {
   const action = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
-  if (updateStageRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Downloading update';
@@ -267,6 +332,10 @@ async function stageSetupBundleUpdate() {
       : 'Verified update ready for later install.';
     updateActionTone = 'ready';
     updateProgressText = '';
+    currentUpdateModel = applySetupBundleUpdateState(currentUpdateModel, {
+      status: 'downloaded',
+      tag: action.tag,
+    });
   } catch (error) {
     if (operation !== updateActionSequence) return;
     updateActionMessage = updateStageFailureMessage(error);
@@ -274,6 +343,58 @@ async function stageSetupBundleUpdate() {
     updateProgressText = '';
   } finally {
     if (operation === updateActionSequence) setUpdateStageBusy(false);
+  }
+}
+
+async function installSetupBundleUpdate() {
+  const action = buildInstallSetupBundleUpdateActionModel(currentUpdateModel);
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActionRunning || !action.canRun) return;
+
+  const operation = ++updateActionSequence;
+  updateActionMessage = 'Installing update';
+  updateActionTone = 'attention';
+  updateProgressText = '';
+  setUpdateInstallBusy(true);
+  try {
+    await bridge()('install_setup_bundle_update', { tag: action.tag });
+    if (operation !== updateActionSequence) return;
+    currentUpdateModel = applySetupBundleUpdateState(currentUpdateModel, {
+      status: 'installed',
+      tag: action.tag,
+    });
+    updateActionMessage = 'Update installed. Open when ready.';
+    updateActionTone = 'ready';
+    updateProgressText = '';
+  } catch (error) {
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = updateInstallFailureMessage(error);
+    updateActionTone = 'error';
+    updateProgressText = '';
+  } finally {
+    if (operation === updateActionSequence) setUpdateInstallBusy(false);
+  }
+}
+
+async function openInstalledSetupBundleUpdate() {
+  const action = buildOpenInstalledSetupBundleUpdateActionModel(currentUpdateModel);
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActionRunning || !action.canRun) return;
+
+  const operation = ++updateActionSequence;
+  updateActionMessage = 'Opening new version';
+  updateActionTone = 'attention';
+  updateProgressText = '';
+  setUpdateOpenBusy(true);
+  try {
+    await bridge()('open_installed_setup_bundle_update', { tag: action.tag });
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = 'New version opened.';
+    updateActionTone = 'ready';
+  } catch (error) {
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = updateOpenFailureMessage(error);
+    updateActionTone = 'error';
+  } finally {
+    if (operation === updateActionSequence) setUpdateOpenBusy(false);
   }
 }
 
@@ -970,8 +1091,17 @@ devicesActionButton.addEventListener('click', () => {
 downloadUpdateButton.addEventListener('click', () => {
   void stageSetupBundleUpdate();
 });
+installUpdateButton.addEventListener('click', () => {
+  void installSetupBundleUpdate();
+});
+openUpdateButton.addEventListener('click', () => {
+  void openInstalledSetupBundleUpdate();
+});
 window.__TAURI__?.event?.listen?.('setup-bundle-update-progress', (event) => {
   renderUpdateStageProgress(event?.payload);
+});
+window.__TAURI__?.event?.listen?.('setup-bundle-install-progress', (event) => {
+  renderUpdateInstallProgress(event?.payload);
 });
 window.addEventListener('beforeunload', clearPrerequisiteWait);
 void refreshChecks({ route: true, clearMessages: true });

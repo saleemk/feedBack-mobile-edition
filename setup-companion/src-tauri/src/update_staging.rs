@@ -359,6 +359,34 @@ pub fn local_update_cache_root() -> Result<PathBuf, UiError> {
         })
 }
 
+pub fn verified_setup_bundle_update_spec_for_tag(
+    tag: &str,
+    cache_root: &Path,
+) -> Result<SetupBundleUpdateSpec, UiError> {
+    let spec = setup_bundle_update_spec_for_tag(tag, cache_root)?;
+    if !spec.final_zip_path.is_file() || !spec.checksum_path.is_file() {
+        return Err(UiError::new(
+            "update_cache_missing",
+            "Verified update package is not available.",
+        ));
+    }
+    let checksum_bytes = fs::read(&spec.checksum_path).map_err(|_| {
+        UiError::new(
+            "update_cache_read_failed",
+            "Could not read the update checksum sidecar.",
+        )
+    })?;
+    let expected_sha256 = parse_checksum_sidecar(&checksum_bytes, &spec.zip_name)?;
+    let actual_sha256 = sha256_file_hex(&spec.final_zip_path)?;
+    if !actual_sha256.eq_ignore_ascii_case(&expected_sha256) {
+        return Err(UiError::new(
+            "update_verification_failed",
+            "Update package verification failed.",
+        ));
+    }
+    Ok(spec)
+}
+
 pub fn setup_bundle_update_spec_for_tag(
     tag: &str,
     cache_root: &Path,

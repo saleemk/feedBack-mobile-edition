@@ -98,6 +98,8 @@ function createDocument() {
     'update-versions',
     'review-update',
     'download-update',
+    'install-update',
+    'open-update',
     'update-progress',
     'generated-at',
     'checks-list',
@@ -128,7 +130,7 @@ function createDocument() {
     'devices-action',
   ];
   const elements = new Map(ids.map((id) => [id, new FakeElement('div', id)]));
-  for (const id of ['refresh', 'check-action', 'review-update', 'download-update', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
+  for (const id of ['refresh', 'check-action', 'review-update', 'download-update', 'install-update', 'open-update', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
     elements.get(id).tagName = 'BUTTON';
   }
   for (const id of ['library-view', 'server-view', 'devices-view', 'check-action-row', 'server-progress']) {
@@ -169,6 +171,9 @@ async function importMainWithHarness({
   latestRelease = { tag_name: 'v0.3.0', prerelease: false, draft: false },
   updateReviewResult,
   updateStageResult,
+  updateInstallState,
+  updateInstallResult,
+  updateOpenResult,
   fetchImpl,
   getStatus,
 }) {
@@ -200,6 +205,29 @@ async function importMainWithHarness({
         phase: 'verified',
         filename: `feedback-mobile-edition-${args.tag}-windows-setup.zip`,
         reason: 'Verified update package for later install.',
+      });
+    if (command === 'get_setup_bundle_update_state') return typeof updateInstallState === 'function'
+      ? updateInstallState(args)
+      : clone(updateInstallState || {
+        status: 'available',
+        tag: args.tag,
+        phase: 'available',
+        reason: 'Update is available for download.',
+      });
+    if (command === 'install_setup_bundle_update') return typeof updateInstallResult === 'function'
+      ? updateInstallResult(args, emitTauriEvent)
+      : clone(updateInstallResult || {
+        status: 'ready',
+        tag: args.tag,
+        phase: 'installed',
+        reason: 'Update installed side by side. Open the new version when ready.',
+      });
+    if (command === 'open_installed_setup_bundle_update') return typeof updateOpenResult === 'function'
+      ? updateOpenResult(args)
+      : clone(updateOpenResult || {
+        status: 'opened',
+        tag: args.tag,
+        reason: 'New version opened.',
       });
     if (command === 'run_device_action') return typeof deviceResult === 'function'
       ? deviceResult(args)
@@ -244,6 +272,8 @@ async function importMainWithHarness({
   await import(`../src/main.js?test=${Date.now()}-${Math.random()}`);
   await tick();
   await tick();
+  await tick();
+  await tick();
   return { document, calls, emitTauriEvent };
 }
 
@@ -273,11 +303,12 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.match(html, /id="update-heading"/);
   assert.match(html, /id="review-update"[^>]*hidden[^>]*disabled/);
   assert.match(html, /id="download-update"[^>]*hidden[^>]*disabled/);
+  assert.match(html, /id="install-update"[^>]*hidden[^>]*disabled/);
+  assert.match(html, /id="open-update"[^>]*hidden[^>]*disabled/);
   assert.match(html, /id="update-progress"[^>]*hidden/);
   assert.match(html, /class="status-update tone-attention"/);
   assert.doesNotMatch(html, /<section[^>]+id="update-status"/);
   assert.doesNotMatch(html, /status-update-message/);
-  assert.doesNotMatch(html, /install update/i);
   assert.doesNotMatch(html, /extract update/i);
   assert.doesNotMatch(html, /repair update/i);
   assert.doesNotMatch(html, /rollback/i);
@@ -285,11 +316,16 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.doesNotMatch(css, /\.status-band\s*>\s*div\s*\{/);
   assert.doesNotMatch(css, /\.update-status\s*\{/);
   assert.doesNotMatch(css, /min-height:\s*4\.4rem/);
+  assert.doesNotMatch(css, /min-height:\s*4\.15rem/);
   assert.doesNotMatch(css, /flex-basis:\s*100%/);
   assert.doesNotMatch(css, /minmax\(9rem,\s*16rem\)/);
   assert.match(css, /\.status-heading\s*\{[\s\S]*?grid-column:\s*1;/);
   assert.match(css, /\.status-copy\s*\{[\s\S]*?grid-column:\s*2;/);
   assert.match(css, /\.status-text-stack\s*\{[\s\S]*?flex:\s*1 1 auto;/);
+  assert.match(css, /\.checks-section\s*\{[\s\S]*?padding:\s*0\.7rem 1\.2rem 0\.75rem;/);
+  assert.match(css, /\.section-head\s*\{[\s\S]*?padding-bottom:\s*0\.55rem;/);
+  assert.match(css, /\.check-row\s*\{[\s\S]*?min-height:\s*4rem;/);
+  assert.match(css, /\.check-row\s*\{[\s\S]*?padding:\s*0\.58rem 0\.85rem;/);
   assert.match(css, /\.check-action-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(12\.5rem,\s*auto\);/);
   assert.match(css, /\.status-update\s*\{[\s\S]*?flex-wrap:\s*wrap;/);
   assert.match(css, /\.status-update-label\s*\{[\s\S]*?text-transform:\s*uppercase;/);
@@ -414,6 +450,8 @@ test('Check view offers setup-bundle download only for a validated newer stable 
 
   assert.equal(setupBundleHarness.document.elements.get('review-update').hidden, false);
   assert.equal(setupBundleHarness.document.elements.get('download-update').hidden, false);
+  assert.equal(setupBundleHarness.document.elements.get('install-update').hidden, true);
+  assert.equal(setupBundleHarness.document.elements.get('open-update').hidden, true);
   assert.equal(setupBundleHarness.document.elements.get('download-update').textContent, 'Download update');
   assert.equal(setupBundleHarness.document.elements.get('update-versions').textContent, 'Local v0.3.0 / Latest stable v0.3.1');
 
@@ -434,6 +472,8 @@ test('Check view offers setup-bundle download only for a validated newer stable 
 
   assert.equal(developmentHarness.document.elements.get('review-update').hidden, false);
   assert.equal(developmentHarness.document.elements.get('download-update').hidden, true);
+  assert.equal(developmentHarness.document.elements.get('install-update').hidden, true);
+  assert.equal(developmentHarness.document.elements.get('open-update').hidden, true);
 });
 
 test('Download update stages through the native tag command with progress and duplicate prevention', async () => {
@@ -497,12 +537,163 @@ test('Download update stages through the native tag command with progress and du
   await tick();
   await tick();
 
-  assert.equal(download.disabled, false);
   assert.equal(review.disabled, false);
-  assert.equal(download.textContent, 'Download update');
+  assert.equal(download.hidden, true);
+  assert.equal(document.elements.get('install-update').hidden, false);
+  assert.equal(document.elements.get('install-update').textContent, 'Install update');
   assert.equal(document.elements.get('update-summary').textContent, 'Verified update ready for later install.');
   assert.match(document.elements.get('update-summary').className, /tone-ready/);
   assert.equal(document.elements.get('update-progress').hidden, true);
+});
+
+test('Check view persists downloaded and installed setup-bundle states from native query', async () => {
+  const downloadedHarness = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateInstallState: { status: 'downloaded', tag: 'v0.3.1', phase: 'downloaded', reason: 'Verified update ready to install.' },
+  });
+  await tick();
+  await tick();
+
+  assert.equal(downloadedHarness.document.elements.get('update-heading').textContent, 'Update downloaded');
+  assert.equal(downloadedHarness.document.elements.get('review-update').hidden, false);
+  assert.equal(downloadedHarness.document.elements.get('download-update').hidden, true);
+  assert.equal(downloadedHarness.document.elements.get('install-update').hidden, false);
+  assert.equal(downloadedHarness.document.elements.get('open-update').hidden, true);
+  assert.deepEqual(
+    downloadedHarness.calls.filter((call) => call.command === 'get_setup_bundle_update_state').map((call) => call.args),
+    [{ tag: 'v0.3.1' }],
+  );
+
+  const installedHarness = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateInstallState: { status: 'installed', tag: 'v0.3.1', phase: 'installed', reason: 'Update installed.' },
+  });
+  await tick();
+  await tick();
+
+  assert.equal(installedHarness.document.elements.get('update-heading').textContent, 'Update installed');
+  assert.equal(installedHarness.document.elements.get('review-update').hidden, false);
+  assert.equal(installedHarness.document.elements.get('download-update').hidden, true);
+  assert.equal(installedHarness.document.elements.get('install-update').hidden, true);
+  assert.equal(installedHarness.document.elements.get('open-update').hidden, false);
+});
+
+test('Install update is explicit, shows progress, prevents duplicates, and reveals Open new version', async () => {
+  let resolveInstall;
+  const installAction = new Promise((resolve) => {
+    resolveInstall = resolve;
+  });
+  const { document, calls, emitTauriEvent } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateInstallState: { status: 'downloaded', tag: 'v0.3.1', phase: 'downloaded', reason: 'Verified update ready to install.' },
+    updateInstallResult: () => installAction,
+  });
+  await tick();
+  await tick();
+
+  const install = document.elements.get('install-update');
+  install.click();
+  await tick();
+
+  assert.deepEqual(
+    calls.filter((call) => call.command === 'install_setup_bundle_update').map((call) => call.args),
+    [{ tag: 'v0.3.1' }],
+  );
+  assert.equal(install.disabled, true);
+  assert.equal(document.elements.get('review-update').disabled, true);
+  assert.equal(install.textContent, 'Installing...');
+
+  install.click();
+  await tick();
+  assert.equal(calls.filter((call) => call.command === 'install_setup_bundle_update').length, 1);
+  assert.equal(calls.some((call) => /open|docker|tailscale|server/i.test(call.command) && call.command !== 'get_setup_status'), false);
+
+  emitTauriEvent('setup-bundle-install-progress', {
+    tag: 'v0.3.1',
+    phase: 'installing',
+    label: 'Installing update',
+    bytesProcessed: 75,
+    bytesTotal: 100,
+  });
+  assert.equal(document.elements.get('update-summary').textContent, 'Installing update');
+  assert.equal(document.elements.get('update-progress').textContent, '75 B / 100 B (75%)');
+
+  resolveInstall({
+    status: 'ready',
+    tag: 'v0.3.1',
+    phase: 'installed',
+    reason: 'Update installed side by side. Open the new version when ready.',
+  });
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('install-update').hidden, true);
+  assert.equal(document.elements.get('open-update').hidden, false);
+  assert.equal(document.elements.get('open-update').textContent, 'Open new version');
+  assert.equal(document.elements.get('update-summary').textContent, 'Update installed. Open when ready.');
+  assert.equal(document.elements.get('update-progress').hidden, true);
+});
+
+test('Open new version is explicit and failure stays bounded', async () => {
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    updateIdentity: {
+      status: 'ready',
+      source: 'setup_bundle',
+      localVersion: '0.3.0',
+      localTag: 'v0.3.0',
+      latestStableReleaseApiUrl: 'https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest',
+      reason: 'Installed setup bundle identity resolved.',
+    },
+    latestRelease: { tag_name: 'v0.3.1', prerelease: false, draft: false },
+    updateInstallState: { status: 'installed', tag: 'v0.3.1', phase: 'installed', reason: 'Update installed.' },
+    updateOpenResult: async () => {
+      const error = new Error('C:\\Users\\person\\secret path failed');
+      error.code = 'update_launch_failed';
+      throw error;
+    },
+  });
+  await tick();
+  await tick();
+
+  document.elements.get('open-update').click();
+  await tick();
+  await tick();
+
+  assert.deepEqual(
+    calls.filter((call) => call.command === 'open_installed_setup_bundle_update').map((call) => call.args),
+    [{ tag: 'v0.3.1' }],
+  );
+  assert.equal(document.elements.get('update-summary').textContent, 'Could not open new version.');
+  assert.doesNotMatch(document.elements.get('update-summary').textContent, /secret|C:\\Users/);
+  assert.equal(document.elements.get('open-update').disabled, false);
 });
 
 test('Download update failure stays concise and keeps retry and review available', async () => {
@@ -579,6 +770,7 @@ test('stale update staging results cannot overwrite a newer operation', async ()
   await tick();
   document.elements.get('download-update').click();
   await tick();
+  assert.equal(stageCalls, 1);
   resolveSecond({
     status: 'ready',
     tag: 'v0.3.1',
@@ -589,7 +781,7 @@ test('stale update staging results cannot overwrite a newer operation', async ()
   await tick();
   await tick();
 
-  assert.equal(document.elements.get('update-summary').textContent, 'Cached update verified for later install.');
+  assert.equal(document.elements.get('update-summary').textContent, 'Verified update ready for later install.');
 });
 
 test('Check view keeps update review failures inline and bounded', async () => {

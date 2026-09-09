@@ -3,7 +3,10 @@ import { test } from 'node:test';
 
 import {
   LATEST_STABLE_RELEASE_API_URL,
+  applySetupBundleUpdateState,
   buildCheckingUpdateModel,
+  buildInstallSetupBundleUpdateActionModel,
+  buildOpenInstalledSetupBundleUpdateActionModel,
   buildReviewUpdateActionModel,
   buildStageSetupBundleUpdateActionModel,
   buildUpdateStatusModel,
@@ -96,6 +99,71 @@ test('buildStageSetupBundleUpdateActionModel appears only for setup-bundle updat
   assert.equal(buildStageSetupBundleUpdateActionModel(developmentUpdate).visible, false);
   assert.equal(buildStageSetupBundleUpdateActionModel(buildCheckingUpdateModel()).visible, false);
   assert.equal(buildStageSetupBundleUpdateActionModel({ state: 'available', localSource: 'setup_bundle', latestTag: 'v0.3.1-rc.1' }).visible, false);
+});
+
+test('setup-bundle update state exposes install and open actions explicitly', () => {
+  const available = buildUpdateStatusModel(
+    { ...bundleIdentity, source: 'setup_bundle', localVersion: '0.3.0', localTag: 'v0.3.0' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  const downloaded = applySetupBundleUpdateState(available, {
+    status: 'downloaded',
+    tag: 'v0.3.1',
+    phase: 'downloaded',
+    reason: 'Verified update ready to install.',
+  });
+  const installed = applySetupBundleUpdateState(available, {
+    status: 'installed',
+    tag: 'v0.3.1',
+    phase: 'installed',
+    reason: 'Update installed.',
+  });
+
+  assert.equal(downloaded.state, 'downloaded');
+  assert.equal(downloaded.label, 'Update downloaded');
+  assert.equal(buildStageSetupBundleUpdateActionModel(downloaded).visible, false);
+  assert.equal(buildInstallSetupBundleUpdateActionModel(downloaded).visible, true);
+  assert.equal(buildInstallSetupBundleUpdateActionModel(downloaded).label, 'Install update');
+  assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(downloaded).visible, false);
+
+  assert.equal(installed.state, 'installed');
+  assert.equal(installed.label, 'Update installed');
+  assert.equal(buildInstallSetupBundleUpdateActionModel(installed).visible, false);
+  assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(installed).visible, true);
+  assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(installed).label, 'Open new version');
+  assert.equal(buildReviewUpdateActionModel(installed).visible, true);
+
+  const developmentUpdate = buildUpdateStatusModel(
+    { ...developmentIdentity, source: 'development_checkout', localVersion: '0.3.0', localTag: 'v0.3.0' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  assert.equal(
+    applySetupBundleUpdateState(developmentUpdate, { status: 'installed', tag: 'v0.3.1' }).state,
+    'available',
+  );
+  assert.equal(buildInstallSetupBundleUpdateActionModel(developmentUpdate).visible, false);
+  assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(developmentUpdate).visible, false);
+});
+
+test('setup-bundle install conflict state is bounded and review-only', () => {
+  const available = buildUpdateStatusModel(
+    { ...bundleIdentity, source: 'setup_bundle', localVersion: '0.3.0', localTag: 'v0.3.0' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  const conflict = applySetupBundleUpdateState(available, {
+    status: 'conflict',
+    tag: 'v0.3.1',
+    phase: 'conflict',
+    reason: 'C:\\Users\\person\\secret path should not leak',
+  });
+
+  assert.equal(conflict.state, 'install_conflict');
+  assert.equal(conflict.label, 'Update install conflict');
+  assert.doesNotMatch(conflict.summary, /secret|C:\\Users/);
+  assert.equal(buildReviewUpdateActionModel(conflict).visible, true);
+  assert.equal(buildStageSetupBundleUpdateActionModel(conflict).visible, false);
+  assert.equal(buildInstallSetupBundleUpdateActionModel(conflict).visible, false);
+  assert.equal(buildOpenInstalledSetupBundleUpdateActionModel(conflict).visible, false);
 });
 
 test('buildReviewUpdateActionModel hides every non-available update state', () => {

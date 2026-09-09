@@ -5,11 +5,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tauri::Emitter;
+use update_install::{
+    install_setup_bundle_update_for_tag, local_installations_root,
+    open_installed_setup_bundle_update_for_tag, setup_bundle_update_state_for_tag,
+    UpdateInstallPayload, UpdateInstallStatePayload, UpdateOpenPayload,
+};
 use update_staging::{
     ensure_setup_bundle_update_target_eligible, local_update_cache_root,
     stage_setup_bundle_update_for_tag, ReqwestUpdateDownloadSource, UpdateStagePayload,
 };
 
+mod update_install;
 mod update_staging;
 
 #[cfg(windows)]
@@ -376,6 +382,69 @@ async fn stage_setup_bundle_update(
     .map_err(|_| UiError::new("update_stage_failed", "Update staging was interrupted."))?
 }
 
+#[tauri::command]
+async fn get_setup_bundle_update_state(
+    state: tauri::State<'_, CompanionState>,
+    tag: String,
+) -> Result<UpdateInstallStatePayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let cache_root = local_update_cache_root()?;
+        let installations_root = local_installations_root()?;
+        setup_bundle_update_state_for_tag(&checkout, &tag, &cache_root, &installations_root)
+    })
+    .await
+    .map_err(|_| UiError::new("update_state_failed", "Update state check was interrupted."))?
+}
+
+#[tauri::command]
+async fn install_setup_bundle_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, CompanionState>,
+    tag: String,
+) -> Result<UpdateInstallPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let cache_root = local_update_cache_root()?;
+        let installations_root = local_installations_root()?;
+        install_setup_bundle_update_for_tag(
+            &checkout,
+            &tag,
+            &cache_root,
+            &installations_root,
+            |progress| {
+                let _ = app.emit("setup-bundle-install-progress", progress);
+            },
+        )
+    })
+    .await
+    .map_err(|_| {
+        UiError::new(
+            "update_install_failed",
+            "Update installation was interrupted.",
+        )
+    })?
+}
+
+#[tauri::command]
+async fn open_installed_setup_bundle_update(
+    state: tauri::State<'_, CompanionState>,
+    tag: String,
+) -> Result<UpdateOpenPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let installations_root = local_installations_root()?;
+        open_installed_setup_bundle_update_for_tag(&checkout, &tag, &installations_root)
+    })
+    .await
+    .map_err(|_| {
+        UiError::new(
+            "update_launch_failed",
+            "Opening the update was interrupted.",
+        )
+    })?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -394,7 +463,10 @@ pub fn run() {
             run_device_action,
             run_prerequisite_action,
             review_available_update,
-            stage_setup_bundle_update
+            stage_setup_bundle_update,
+            get_setup_bundle_update_state,
+            install_setup_bundle_update,
+            open_installed_setup_bundle_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
