@@ -294,6 +294,29 @@ h1 {
   opacity: 1;
 }
 
+.version-select {
+  flex: 0 1 9.5rem;
+  min-width: 7.5rem;
+  min-height: 1.7rem;
+  border: 1px solid #f6cf45;
+  border-radius: 2px;
+  padding: 0.2rem 0.45rem;
+  background: #111c22;
+  color: #e7f2f2;
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.version-select[hidden] {
+  display: none;
+}
+
+.version-select:disabled {
+  border-color: #344451;
+  color: #71818d;
+  opacity: 1;
+}
+
 .update-progress {
   color: #f6cf45;
   font-size: 0.68rem;

@@ -757,6 +757,20 @@ pub(crate) fn validate_installed_setup_bundle_in_root(
     Ok(canonical_final)
 }
 
+pub(crate) fn validate_setup_bundle_checkout_in_place(
+    root: &Path,
+    tag: &str,
+) -> Result<PathBuf, UiError> {
+    reject_reparse_or_symlink_path(
+        root,
+        "update_install_invalid",
+        "Setup bundle directory is not valid.",
+    )?;
+    let canonical_root = canonical_install_path(root)?;
+    validate_installed_setup_bundle(&canonical_root, tag)?;
+    Ok(canonical_root)
+}
+
 fn read_install_manifest(path: &Path, tag: &str) -> Result<SetupBundleInstallManifest, UiError> {
     let text = fs::read_to_string(path).map_err(|_| {
         UiError::new(

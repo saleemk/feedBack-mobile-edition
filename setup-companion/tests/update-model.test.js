@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   LATEST_STABLE_RELEASE_API_URL,
   applySetupBundleActivationState,
+  applySetupBundleVersionInventory,
   applySetupBundleUpdateState,
   buildCheckingUpdateModel,
   buildInstallSetupBundleUpdateActionModel,
@@ -11,6 +12,8 @@ import {
   buildOpenInstalledSetupBundleUpdateActionModel,
   buildReviewUpdateActionModel,
   buildStageSetupBundleUpdateActionModel,
+  buildUseBundledVersionActionModel,
+  buildVersionSelectionActionModel,
   buildUpdateStatusModel,
   checkLatestStableRelease,
 } from '../src/update-model.js';
@@ -212,6 +215,82 @@ test('setup-bundle activation state exposes Make current only for managed versio
   assert.equal(
     applySetupBundleActivationState(currentBundle, { status: 'activatable', tag: 'v0.3.1/evil' }).state,
     'current',
+  );
+});
+
+test('setup-bundle version inventory exposes alternatives and bundled restore explicitly', () => {
+  const currentBundle = buildUpdateStatusModel(
+    { ...bundleIdentity, source: 'setup_bundle', localVersion: '0.3.1', localTag: 'v0.3.1' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  const managed = applySetupBundleVersionInventory(currentBundle, {
+    status: 'ready',
+    versions: [{ tag: 'v0.4.0' }, { tag: 'v0.3.1' }, { tag: 'v0.2.0' }, { tag: 'bad' }],
+    currentSource: 'managed',
+    currentTag: 'v0.3.1',
+    runningTag: 'v0.3.1',
+    reason: 'path should not be displayed',
+  });
+
+  assert.equal(managed.label, 'Current version');
+  assert.equal(managed.summary, 'Original launcher will open v0.3.1 next time.');
+  assert.deepEqual(buildVersionSelectionActionModel(managed, '').options, ['v0.4.0', 'v0.2.0']);
+  assert.equal(buildVersionSelectionActionModel(managed, '').canRun, false);
+  assert.equal(buildVersionSelectionActionModel(managed, 'v0.4.0').canRun, true);
+  assert.equal(buildVersionSelectionActionModel(managed, 'v0.3.1').canRun, false);
+  assert.equal(buildUseBundledVersionActionModel(managed).visible, true);
+
+  const bundled = applySetupBundleVersionInventory(currentBundle, {
+    status: 'ready',
+    versions: [{ tag: 'v0.4.0' }],
+    currentSource: 'bundled',
+    currentTag: '',
+    runningTag: 'v0.3.1',
+    reason: 'bundled',
+  });
+  assert.equal(bundled.label, 'Bundled version');
+  assert.equal(buildVersionSelectionActionModel(bundled, 'v0.4.0').canRun, true);
+  assert.equal(buildUseBundledVersionActionModel(bundled).visible, false);
+
+  const invalid = applySetupBundleVersionInventory(currentBundle, {
+    status: 'ready',
+    versions: [{ tag: 'v0.4.0' }],
+    currentSource: 'invalid',
+    currentTag: 'v9.9.9',
+    runningTag: 'v0.3.1',
+    reason: 'C:\\Users\\person\\secret',
+  });
+  assert.equal(invalid.label, 'Current record invalid');
+  assert.doesNotMatch(invalid.summary, /secret|C:\\Users/);
+  assert.equal(buildUseBundledVersionActionModel(invalid).visible, true);
+
+  const runningActivatable = applySetupBundleVersionInventory(
+    applySetupBundleActivationState(currentBundle, {
+      status: 'activatable',
+      tag: 'v0.3.1',
+      reason: 'Make this version current for the original setup launcher.',
+    }),
+    {
+      status: 'ready',
+      versions: [{ tag: 'v0.4.0' }, { tag: 'v0.3.1' }, { tag: 'v0.2.0' }],
+      currentSource: 'bundled',
+      currentTag: '',
+      runningTag: 'v0.3.1',
+      reason: 'bundled',
+    },
+  );
+  assert.equal(buildMakeCurrentActionModel(runningActivatable).visible, true);
+  assert.deepEqual(buildVersionSelectionActionModel(runningActivatable, '').options, ['v0.4.0', 'v0.2.0']);
+  assert.equal(buildVersionSelectionActionModel(runningActivatable, 'v0.3.1').canRun, false);
+  assert.equal(buildVersionSelectionActionModel(runningActivatable, 'v0.4.0').canRun, true);
+
+  const developmentUpdate = buildUpdateStatusModel(
+    { ...developmentIdentity, source: 'development_checkout', localVersion: '0.3.1', localTag: 'v0.3.1' },
+    { tag_name: 'v0.3.1', prerelease: false, draft: false },
+  );
+  assert.equal(
+    applySetupBundleVersionInventory(developmentUpdate, { status: 'ready', versions: [{ tag: 'v0.4.0' }] }).state,
+    'development_current',
   );
 });
 

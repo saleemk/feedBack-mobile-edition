@@ -1,6 +1,7 @@
 import { buildCheckActionModel, buildDeviceModel, buildRenderModel, buildServerModel, buildWorkflowModel } from './status-model.js';
 import {
   applySetupBundleActivationState,
+  applySetupBundleVersionInventory,
   applySetupBundleUpdateState,
   buildCheckingUpdateModel,
   buildInstallSetupBundleUpdateActionModel,
@@ -8,6 +9,8 @@ import {
   buildOpenInstalledSetupBundleUpdateActionModel,
   buildReviewUpdateActionModel,
   buildStageSetupBundleUpdateActionModel,
+  buildUseBundledVersionActionModel,
+  buildVersionSelectionActionModel,
   buildUpdateStatusModel,
   checkLatestStableRelease,
 } from './update-model.js';
@@ -39,6 +42,9 @@ const downloadUpdateButton = document.querySelector('#download-update');
 const installUpdateButton = document.querySelector('#install-update');
 const openUpdateButton = document.querySelector('#open-update');
 const makeCurrentButton = document.querySelector('#make-current');
+const versionSelect = document.querySelector('#version-select');
+const useSelectedVersionButton = document.querySelector('#use-selected-version');
+const useBundledVersionButton = document.querySelector('#use-bundled-version');
 const updateProgress = document.querySelector('#update-progress');
 const generatedAt = document.querySelector('#generated-at');
 const checksList = document.querySelector('#checks-list');
@@ -98,9 +104,12 @@ let updateStageRunning = false;
 let updateInstallRunning = false;
 let updateOpenRunning = false;
 let updateActivationRunning = false;
+let updateVersionSelectRunning = false;
+let updateVersionRestoreRunning = false;
 let updateActionMessage = '';
 let updateActionTone = '';
 let updateProgressText = '';
+let selectedVersionTag = '';
 
 function setupActionRunning() {
   return serverActionRunning || deviceActionRunning || prerequisiteActionRunning;
@@ -142,13 +151,54 @@ function renderUpdateStatus(model) {
   renderUpdateActions();
 }
 
+function applyLocalSetupBundleState(model, activationState, versionInventory) {
+  return applySetupBundleVersionInventory(
+    applySetupBundleActivationState(model, activationState),
+    versionInventory,
+  );
+}
+
+async function refreshLocalSetupBundleState(model = currentUpdateModel) {
+  const [activationState, versionInventory] = await Promise.all([
+    bridge()('get_setup_bundle_activation_state').catch(() => null),
+    bridge()('get_setup_bundle_version_inventory').catch(() => null),
+  ]);
+  return applyLocalSetupBundleState(model, activationState, versionInventory);
+}
+
+function renderVersionSelect(action, updateBusy) {
+  versionSelect.hidden = !action.visible;
+  versionSelect.disabled = updateBusy || !action.visible;
+  versionSelect.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = action.options.length > 0 ? 'Select version' : 'No versions';
+  versionSelect.append(placeholder);
+  for (const tag of action.options) {
+    const option = document.createElement('option');
+    option.value = tag;
+    option.textContent = tag;
+    versionSelect.append(option);
+  }
+  versionSelect.value = action.selectedTag;
+  selectedVersionTag = action.selectedTag;
+}
+
 function renderUpdateActions() {
   const reviewAction = buildReviewUpdateActionModel(currentUpdateModel);
   const stageAction = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
   const installAction = buildInstallSetupBundleUpdateActionModel(currentUpdateModel);
   const openAction = buildOpenInstalledSetupBundleUpdateActionModel(currentUpdateModel);
   const makeCurrentAction = buildMakeCurrentActionModel(currentUpdateModel);
-  const updateBusy = updateActionRunning || updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning;
+  const versionSelectionAction = buildVersionSelectionActionModel(currentUpdateModel, selectedVersionTag);
+  const useBundledAction = buildUseBundledVersionActionModel(currentUpdateModel);
+  const updateBusy = updateActionRunning
+    || updateStageRunning
+    || updateInstallRunning
+    || updateOpenRunning
+    || updateActivationRunning
+    || updateVersionSelectRunning
+    || updateVersionRestoreRunning;
 
   reviewUpdateButton.hidden = !reviewAction.visible;
   reviewUpdateButton.disabled = updateBusy || !reviewAction.canRun;
@@ -175,6 +225,16 @@ function renderUpdateActions() {
   makeCurrentButton.dataset.currentTag = makeCurrentAction.tag;
   makeCurrentButton.textContent = updateActivationRunning ? 'Activating...' : makeCurrentAction.label;
 
+  renderVersionSelect(versionSelectionAction, updateBusy);
+  useSelectedVersionButton.hidden = !(versionSelectionAction.visible || updateVersionSelectRunning);
+  useSelectedVersionButton.disabled = updateBusy || !versionSelectionAction.canRun;
+  useSelectedVersionButton.dataset.versionTag = versionSelectionAction.selectedTag;
+  useSelectedVersionButton.textContent = updateVersionSelectRunning ? 'Saving...' : versionSelectionAction.label;
+
+  useBundledVersionButton.hidden = !(useBundledAction.visible || updateVersionRestoreRunning);
+  useBundledVersionButton.disabled = updateBusy || !useBundledAction.canRun;
+  useBundledVersionButton.textContent = updateVersionRestoreRunning ? 'Restoring...' : useBundledAction.label;
+
   updateSummary.textContent = updateActionMessage || currentUpdateModel.summary;
   updateSummary.className = updateActionTone ? `tone-${updateActionTone}` : '';
   updateProgress.textContent = updateProgressText;
@@ -183,7 +243,7 @@ function renderUpdateActions() {
 
 async function refreshUpdateStatus() {
   const sequence = ++updateSequence;
-  if (!updateStageRunning && !updateInstallRunning && !updateOpenRunning && !updateActivationRunning) {
+  if (!updateStageRunning && !updateInstallRunning && !updateOpenRunning && !updateActivationRunning && !updateVersionSelectRunning && !updateVersionRestoreRunning) {
     updateActionMessage = '';
     updateActionTone = '';
     updateProgressText = '';
@@ -192,18 +252,22 @@ async function refreshUpdateStatus() {
   try {
     const localIdentity = await bridge()('get_update_identity');
     let activationState = null;
+    let versionInventory = null;
     const activationStatePromise = localIdentity?.source === 'setup_bundle'
-      ? bridge()('get_setup_bundle_activation_state')
-        .then((state) => {
-          activationState = state;
+      ? Promise.all([
+        bridge()('get_setup_bundle_activation_state').catch(() => null),
+        bridge()('get_setup_bundle_version_inventory').catch(() => null),
+      ])
+        .then(([activation, inventory]) => {
+          activationState = activation;
+          versionInventory = inventory;
           if (sequence === updateSequence) {
             const localModel = buildUpdateStatusModel(localIdentity, null);
-            renderUpdateStatus(applySetupBundleActivationState(localModel, state));
+            renderUpdateStatus(applyLocalSetupBundleState(localModel, activation, inventory));
           }
-          return state;
+          return { activationState: activation, versionInventory: inventory };
         })
-        .catch(() => null)
-      : Promise.resolve(null);
+      : Promise.resolve({ activationState: null, versionInventory: null });
     let model = await checkLatestStableRelease(localIdentity, {
       fetchImpl: window.fetch?.bind(window) || globalThis.fetch,
       AbortControllerImpl: window.AbortController || globalThis.AbortController,
@@ -216,8 +280,10 @@ async function refreshUpdateStatus() {
         // A failed local state check should not hide the already safe review/download path.
       }
     }
-    activationState = activationState || await activationStatePromise;
-    model = applySetupBundleActivationState(model, activationState);
+    const localState = await activationStatePromise;
+    activationState = activationState || localState?.activationState;
+    versionInventory = versionInventory || localState?.versionInventory;
+    model = applyLocalSetupBundleState(model, activationState, versionInventory);
     if (sequence === updateSequence) renderUpdateStatus(model);
   } catch (error) {
     if (sequence === updateSequence) {
@@ -256,6 +322,16 @@ function setUpdateOpenBusy(isBusy) {
 
 function setUpdateActivationBusy(isBusy) {
   updateActivationRunning = isBusy;
+  renderUpdateActions();
+}
+
+function setUpdateVersionSelectBusy(isBusy) {
+  updateVersionSelectRunning = isBusy;
+  renderUpdateActions();
+}
+
+function setUpdateVersionRestoreBusy(isBusy) {
+  updateVersionRestoreRunning = isBusy;
   renderUpdateActions();
 }
 
@@ -348,7 +424,7 @@ function updateOpenFailureMessage(error) {
 
 async function stageSetupBundleUpdate() {
   const action = buildStageSetupBundleUpdateActionModel(currentUpdateModel);
-  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateVersionSelectRunning || updateVersionRestoreRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Downloading update';
@@ -379,7 +455,7 @@ async function stageSetupBundleUpdate() {
 
 async function installSetupBundleUpdate() {
   const action = buildInstallSetupBundleUpdateActionModel(currentUpdateModel);
-  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateVersionSelectRunning || updateVersionRestoreRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Installing update';
@@ -408,7 +484,7 @@ async function installSetupBundleUpdate() {
 
 async function openInstalledSetupBundleUpdate() {
   const action = buildOpenInstalledSetupBundleUpdateActionModel(currentUpdateModel);
-  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateVersionSelectRunning || updateVersionRestoreRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Opening new version';
@@ -431,7 +507,7 @@ async function openInstalledSetupBundleUpdate() {
 
 async function activateSetupBundleCurrent() {
   const action = buildMakeCurrentActionModel(currentUpdateModel);
-  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateActionRunning || !action.canRun) return;
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateVersionSelectRunning || updateVersionRestoreRunning || updateActionRunning || !action.canRun) return;
 
   const operation = ++updateActionSequence;
   updateActionMessage = 'Activating version';
@@ -441,10 +517,9 @@ async function activateSetupBundleCurrent() {
   try {
     const result = await bridge()('activate_setup_bundle_current');
     if (operation !== updateActionSequence) return;
-    currentUpdateModel = applySetupBundleActivationState(currentUpdateModel, {
-      status: 'current',
-      tag: result?.tag || action.tag,
-    });
+    const settledModel = await refreshLocalSetupBundleState(currentUpdateModel);
+    if (operation !== updateActionSequence) return;
+    currentUpdateModel = settledModel;
     updateActionMessage = 'Current version saved. Original launcher will open this version next time.';
     updateActionTone = 'ready';
     renderUpdateStatus(currentUpdateModel);
@@ -454,6 +529,62 @@ async function activateSetupBundleCurrent() {
     updateActionTone = 'error';
   } finally {
     if (operation === updateActionSequence) setUpdateActivationBusy(false);
+  }
+}
+
+async function selectSetupBundleVersion() {
+  const action = buildVersionSelectionActionModel(currentUpdateModel, selectedVersionTag);
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateVersionSelectRunning || updateVersionRestoreRunning || updateActionRunning || !action.canRun) return;
+
+  const operation = ++updateActionSequence;
+  updateActionMessage = 'Saving version';
+  updateActionTone = 'attention';
+  updateProgressText = '';
+  setUpdateVersionSelectBusy(true);
+  try {
+    const result = await bridge()('select_setup_bundle_version_current', { tag: action.selectedTag });
+    if (operation !== updateActionSequence) return;
+    const settledModel = await refreshLocalSetupBundleState(currentUpdateModel);
+    if (operation !== updateActionSequence) return;
+    currentUpdateModel = settledModel;
+    selectedVersionTag = '';
+    updateActionMessage = result?.reason || `Current version saved. Original launcher will open ${action.selectedTag} next time.`;
+    updateActionTone = 'ready';
+    renderUpdateStatus(currentUpdateModel);
+  } catch (error) {
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = 'Could not use selected version.';
+    updateActionTone = 'error';
+  } finally {
+    if (operation === updateActionSequence) setUpdateVersionSelectBusy(false);
+  }
+}
+
+async function restoreBundledSetupVersion() {
+  const action = buildUseBundledVersionActionModel(currentUpdateModel);
+  if (updateStageRunning || updateInstallRunning || updateOpenRunning || updateActivationRunning || updateVersionSelectRunning || updateVersionRestoreRunning || updateActionRunning || !action.canRun) return;
+
+  const operation = ++updateActionSequence;
+  updateActionMessage = 'Restoring bundled version';
+  updateActionTone = 'attention';
+  updateProgressText = '';
+  setUpdateVersionRestoreBusy(true);
+  try {
+    const result = await bridge()('restore_bundled_setup_current');
+    if (operation !== updateActionSequence) return;
+    const settledModel = await refreshLocalSetupBundleState(currentUpdateModel);
+    if (operation !== updateActionSequence) return;
+    currentUpdateModel = settledModel;
+    selectedVersionTag = '';
+    updateActionMessage = result?.reason || 'Bundled version restored. Original launcher will use its bundled Companion next time.';
+    updateActionTone = 'ready';
+    renderUpdateStatus(currentUpdateModel);
+  } catch (error) {
+    if (operation !== updateActionSequence) return;
+    updateActionMessage = 'Could not use bundled version.';
+    updateActionTone = 'error';
+  } finally {
+    if (operation === updateActionSequence) setUpdateVersionRestoreBusy(false);
   }
 }
 
@@ -1158,6 +1289,16 @@ openUpdateButton.addEventListener('click', () => {
 });
 makeCurrentButton.addEventListener('click', () => {
   void activateSetupBundleCurrent();
+});
+versionSelect.addEventListener('change', () => {
+  selectedVersionTag = versionSelect.value;
+  renderUpdateActions();
+});
+useSelectedVersionButton.addEventListener('click', () => {
+  void selectSetupBundleVersion();
+});
+useBundledVersionButton.addEventListener('click', () => {
+  void restoreBundledSetupVersion();
 });
 window.__TAURI__?.event?.listen?.('setup-bundle-update-progress', (event) => {
   renderUpdateStageProgress(event?.payload);

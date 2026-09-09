@@ -6,8 +6,11 @@ use std::process::Command;
 
 use tauri::Emitter;
 use update_activation::{
-    activate_setup_bundle_for_local_checkout, setup_bundle_activation_state_for_local_checkout,
-    ActivationPayload, ActivationStatePayload,
+    activate_setup_bundle_for_local_checkout, restore_bundled_setup_for_local_checkout,
+    select_setup_bundle_version_for_local_checkout,
+    setup_bundle_activation_state_for_local_checkout,
+    setup_bundle_version_inventory_for_local_checkout, ActivationPayload, ActivationStatePayload,
+    VersionInventoryPayload, VersionSelectionPayload,
 };
 use update_install::{
     install_setup_bundle_update_for_tag, local_installations_root,
@@ -479,6 +482,58 @@ async fn activate_setup_bundle_current(
     .map_err(|_| UiError::new("activation_failed", "Activation was interrupted."))?
 }
 
+#[tauri::command]
+async fn get_setup_bundle_version_inventory(
+    state: tauri::State<'_, CompanionState>,
+) -> Result<VersionInventoryPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        setup_bundle_version_inventory_for_local_checkout(&checkout)
+    })
+    .await
+    .map_err(|_| {
+        UiError::new(
+            "version_inventory_failed",
+            "Version inventory check was interrupted.",
+        )
+    })?
+}
+
+#[tauri::command]
+async fn select_setup_bundle_version_current(
+    state: tauri::State<'_, CompanionState>,
+    tag: String,
+) -> Result<VersionSelectionPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        select_setup_bundle_version_for_local_checkout(&checkout, &tag)
+    })
+    .await
+    .map_err(|_| {
+        UiError::new(
+            "version_select_failed",
+            "Version selection was interrupted.",
+        )
+    })?
+}
+
+#[tauri::command]
+async fn restore_bundled_setup_current(
+    state: tauri::State<'_, CompanionState>,
+) -> Result<VersionSelectionPayload, UiError> {
+    let checkout = state.checkout.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        restore_bundled_setup_for_local_checkout(&checkout)
+    })
+    .await
+    .map_err(|_| {
+        UiError::new(
+            "version_restore_failed",
+            "Bundled setup restore was interrupted.",
+        )
+    })?
+}
+
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -502,7 +557,10 @@ pub fn run() {
             install_setup_bundle_update,
             open_installed_setup_bundle_update,
             get_setup_bundle_activation_state,
-            activate_setup_bundle_current
+            activate_setup_bundle_current,
+            get_setup_bundle_version_inventory,
+            select_setup_bundle_version_current,
+            restore_bundled_setup_current
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");

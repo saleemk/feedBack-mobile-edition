@@ -279,6 +279,81 @@ export function buildMakeCurrentActionModel(updateModel) {
   };
 }
 
+export function applySetupBundleVersionInventory(updateModel, inventory) {
+  if (!updateModel || updateModel.localSource !== 'setup_bundle' || !inventory || inventory.status !== 'ready') {
+    return updateModel;
+  }
+  const versions = Array.isArray(inventory.versions)
+    ? inventory.versions
+      .map((entry) => (typeof entry?.tag === 'string' && /^v\d+\.\d+\.\d+$/.test(entry.tag) ? entry.tag : ''))
+      .filter(Boolean)
+    : [];
+  const currentSource = ['managed', 'bundled', 'invalid'].includes(inventory.currentSource)
+    ? inventory.currentSource
+    : 'invalid';
+  const currentTag = currentSource === 'managed' && /^v\d+\.\d+\.\d+$/.test(inventory.currentTag || '')
+    ? inventory.currentTag
+    : '';
+  const runningTag = /^v\d+\.\d+\.\d+$/.test(inventory.runningTag || '') ? inventory.runningTag : '';
+  const copy = {
+    managed: {
+      label: 'Current version',
+      summary: `Original launcher will open ${currentTag} next time.`,
+      tone: 'ready',
+    },
+    bundled: {
+      label: 'Bundled version',
+      summary: 'Original launcher will use its bundled Companion next time.',
+      tone: 'ready',
+    },
+    invalid: {
+      label: 'Current record invalid',
+      summary: 'Choose a validated version or use bundled version for the next launch.',
+      tone: 'error',
+    },
+  }[currentSource];
+  return {
+    ...updateModel,
+    versionInventoryStatus: 'ready',
+    versionOptions: versions,
+    versionCurrentSource: currentSource,
+    versionCurrentTag: currentTag,
+    versionRunningTag: runningTag,
+    tone: copy.tone,
+    label: copy.label,
+    summary: copy.summary,
+  };
+}
+
+export function buildVersionSelectionActionModel(updateModel, selectedTag = '') {
+  const currentTag = typeof updateModel?.versionCurrentTag === 'string' ? updateModel.versionCurrentTag : '';
+  const runningMakeCurrentTag = buildMakeCurrentActionModel(updateModel).tag;
+  const options = Array.isArray(updateModel?.versionOptions)
+    ? updateModel.versionOptions.filter((tag) => tag !== currentTag
+      && tag !== runningMakeCurrentTag
+      && /^v\d+\.\d+\.\d+$/.test(tag))
+    : [];
+  const selected = options.includes(selectedTag) ? selectedTag : '';
+  const visible = updateModel?.versionInventoryStatus === 'ready' && options.length > 0;
+  return {
+    visible,
+    canRun: visible && Boolean(selected),
+    options,
+    selectedTag: selected,
+    label: 'Use selected version',
+  };
+}
+
+export function buildUseBundledVersionActionModel(updateModel) {
+  const visible = updateModel?.versionInventoryStatus === 'ready'
+    && ['managed', 'invalid'].includes(updateModel?.versionCurrentSource);
+  return {
+    visible,
+    canRun: visible,
+    label: 'Use bundled version',
+  };
+}
+
 export async function fetchLatestStableRelease(apiUrl, options = {}) {
   const {
     fetchImpl = globalThis.fetch,
