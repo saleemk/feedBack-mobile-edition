@@ -176,11 +176,11 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !insertmacro MUI_PAGE_WELCOME
 
 Function WelcomeShow
-  ${NSD_CreateLink} 120u 157u 195u 10u "Get Docker Desktop"
+  ${NSD_CreateLink} 120u 172u 92u 10u "Get Docker Desktop"
   Pop $DockerDownloadLink
   ${NSD_OnClick} $DockerDownloadLink OpenDockerDownload
 
-  ${NSD_CreateLink} 120u 172u 195u 10u "Get Tailscale for Windows"
+  ${NSD_CreateLink} 217u 172u 98u 10u "Get Tailscale"
   Pop $TailscaleDownloadLink
   ${NSD_OnClick} $TailscaleDownloadLink OpenTailscaleDownload
 FunctionEnd

@@ -285,6 +285,8 @@ try {
             Assert-True $template.Contains('Use your existing song library from one private server') 'Installer welcome text should describe the product.'
             Assert-True $template.Contains('Docker Desktop runs the local server') 'Installer welcome text should explain Docker Desktop.'
             Assert-True $template.Contains('Tailscale is optional for local use') 'Installer welcome text should scope Tailscale to private mobile access.'
+            Assert-True $template.Contains('Get Docker Desktop') 'Installer welcome should show the Docker Desktop download link.'
+            Assert-True $template.Contains('Get Tailscale') 'Installer welcome should show the Tailscale download link.'
             Assert-True $template.Contains('https://docs.docker.com/desktop/setup/install/windows-install/') 'Installer welcome should link to the official Docker Desktop setup page.'
             Assert-True $template.Contains('https://tailscale.com/download/windows') 'Installer welcome should link to the official Tailscale Windows download page.'
             Assert-True $template.Contains('Delete "$DESKTOP\${PRODUCTNAME}.lnk"') 'Explicit desktop shortcut creation should replace a stale shortcut.'
