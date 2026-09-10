@@ -778,7 +778,10 @@ fn read_install_manifest(path: &Path, tag: &str) -> Result<SetupBundleInstallMan
             "Installed update manifest could not be read.",
         )
     })?;
-    let manifest = serde_json::from_str::<SetupBundleInstallManifest>(&text).map_err(|_| {
+    let manifest = serde_json::from_str::<SetupBundleInstallManifest>(strip_leading_json_bom(
+        &text,
+    ))
+    .map_err(|_| {
         UiError::new(
             "update_install_invalid",
             "Installed update manifest is not valid.",
@@ -805,6 +808,10 @@ fn read_install_manifest(path: &Path, tag: &str) -> Result<SetupBundleInstallMan
         ));
     }
     Ok(manifest)
+}
+
+fn strip_leading_json_bom(content: &str) -> &str {
+    content.strip_prefix('\u{feff}').unwrap_or(content)
 }
 
 fn reject_extracted_forbidden_paths(root: &Path) -> Result<(), UiError> {
@@ -1405,6 +1412,31 @@ mod tests {
             expected_total
         );
 
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn installed_validation_accepts_bom_prefixed_setup_manifest() {
+        let (root, cache, installs) = install_fixture("bom-manifest");
+        let current = root.join("current");
+        let mut entries = base_entries("v1.0.1");
+        for (name, bytes) in &mut entries {
+            if name == "SETUP-BUNDLE-MANIFEST.json" {
+                let mut prefixed = "\u{feff}".as_bytes().to_vec();
+                prefixed.extend_from_slice(&bytes[..]);
+                *bytes = prefixed;
+            }
+        }
+        write_staged_update(&cache, "v1.0.1", entries);
+
+        install_setup_bundle_update_for_tag(&current, "v1.0.1", &cache, &installs, |_| {})
+            .expect("install accepts BOM-prefixed manifest");
+        let state = setup_bundle_update_state_for_tag(&current, "v1.0.1", &cache, &installs)
+            .expect("installed state accepts BOM-prefixed manifest");
+
+        assert_eq!(state.status, "installed");
+        build_installed_setup_bundle_launch_spec(&current, "v1.0.1", &installs)
+            .expect("launch validation accepts BOM-prefixed manifest");
         fs::remove_dir_all(root).expect("remove temp root");
     }
 

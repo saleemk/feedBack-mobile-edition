@@ -143,6 +143,32 @@ function Read-ZipEntryText {
     }
 }
 
+function Read-ZipEntryBytes {
+    param(
+        [string]$ZipPath,
+        [string]$EntryName
+    )
+
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $entry = $zip.GetEntry($EntryName)
+        if ($null -eq $entry) {
+            throw "Zip entry not found: $EntryName"
+        }
+        $stream = $entry.Open()
+        $memory = [System.IO.MemoryStream]::new()
+        try {
+            $stream.CopyTo($memory)
+            return $memory.ToArray()
+        } finally {
+            $memory.Dispose()
+            $stream.Dispose()
+        }
+    } finally {
+        $zip.Dispose()
+    }
+}
+
 function New-TestDirectory {
     param([string]$Prefix)
 
@@ -429,7 +455,12 @@ try {
         Assert-True (-not ($entries -contains "$($bundleFixture.topLevel)/$forbidden")) "Bundle should not contain $forbidden."
     }
 
-    $manifest = Read-ZipEntryText -ZipPath $result.zipPath -EntryName "$($bundleFixture.topLevel)/SETUP-BUNDLE-MANIFEST.json" | ConvertFrom-Json
+    $manifestEntryName = "$($bundleFixture.topLevel)/SETUP-BUNDLE-MANIFEST.json"
+    $manifestBytes = Read-ZipEntryBytes -ZipPath $result.zipPath -EntryName $manifestEntryName
+    Assert-True ($manifestBytes.Length -gt 3) 'Bundle manifest should not be empty.'
+    Assert-True (-not ($manifestBytes[0] -eq 0xef -and $manifestBytes[1] -eq 0xbb -and $manifestBytes[2] -eq 0xbf)) 'Bundle manifest should be UTF-8 without BOM.'
+    Assert-Equal $manifestBytes[0] 123 'Bundle manifest JSON should start with an object.'
+    $manifest = Read-ZipEntryText -ZipPath $result.zipPath -EntryName $manifestEntryName | ConvertFrom-Json
     $expectedHead = (Invoke-TestGit -RepositoryRoot $bundleFixture.root -Arguments @('rev-parse', 'HEAD') | Select-Object -First 1)
     $expectedCompanionHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundleFixture.companion).Hash.ToLowerInvariant()
     Assert-Equal $manifest.schema 'feedback-mobile-edition.setup-bundle.v1' 'Bundle manifest should record the schema identity.'

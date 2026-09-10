@@ -443,7 +443,8 @@ function New-MobileEditionSetupBundle {
             generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         }
         $manifestPath = Join-Path -Path $stageDirectory -ChildPath 'SETUP-BUNDLE-MANIFEST.json'
-        $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+        $manifestJson = $manifest | ConvertTo-Json -Depth 4
+        [System.IO.File]::WriteAllText($manifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
 
         New-Item -ItemType Directory -Path $resolvedOutputDirectory -Force | Out-Null
         if ($Force) {

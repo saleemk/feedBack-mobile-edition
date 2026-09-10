@@ -730,7 +730,7 @@ fn update_identity_from_bundle_manifest(path: &Path) -> UpdateIdentityPayload {
     match fs::read_to_string(path)
         .map_err(|_| "Setup bundle manifest could not be read.".to_string())
         .and_then(|content| {
-            serde_json::from_str::<SetupBundleManifestFile>(&content)
+            serde_json::from_str::<SetupBundleManifestFile>(strip_leading_json_bom(&content))
                 .map_err(|_| "Setup bundle manifest is not valid.".to_string())
         })
         .and_then(validate_setup_bundle_manifest)
@@ -743,6 +743,10 @@ fn update_identity_from_bundle_manifest(path: &Path) -> UpdateIdentityPayload {
         ),
         Err(reason) => unavailable_update_identity(reason),
     }
+}
+
+fn strip_leading_json_bom(content: &str) -> &str {
+    content.strip_prefix('\u{feff}').unwrap_or(content)
 }
 
 fn update_identity_from_edition_identity_file(path: &Path) -> UpdateIdentityPayload {
@@ -1466,6 +1470,24 @@ mod tests {
               "companionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
               "generatedAtUtc": "2026-09-09T00:00:00Z"
             }"#,
+        )
+        .expect("write bundle manifest");
+
+        let payload = update_identity_for_checkout(&root);
+
+        assert_eq!(payload.status, "ready");
+        assert_eq!(payload.source, "setup_bundle");
+        assert_eq!(payload.local_version.as_deref(), Some("1.2.3"));
+        assert_eq!(payload.local_tag.as_deref(), Some("v1.2.3"));
+        fs::remove_dir_all(root).expect("remove temp root");
+    }
+
+    #[test]
+    fn bom_prefixed_setup_bundle_manifest_identifies_installed_bundle() {
+        let root = temp_root("bundle-identity-bom");
+        fs::write(
+            root.join("SETUP-BUNDLE-MANIFEST.json"),
+            "\u{feff}{\"schema\":\"feedback-mobile-edition.setup-bundle.v1\",\"editionVersion\":\"v1.2.3\"}",
         )
         .expect("write bundle manifest");
 
