@@ -1,5 +1,14 @@
 *
 
+# Prune top-level developer and release-output trees before evaluating the
+# narrow allowlist below. BuildKit can otherwise traverse ignored directories
+# while resolving later negations, and unreadable test output can break a build.
+/.tmp/
+/artifacts/
+/.venv/
+/node_modules/
+/setup-companion/
+
 !.dockerignore
 !Dockerfile
 !dockerfile

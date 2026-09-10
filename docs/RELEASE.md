@@ -1,9 +1,9 @@
 # Mobile Edition Release Process
 
 This document defines the durable process for producing a fee[dB]ack Mobile
-Edition release. The `v0.3.0` release supports a Git
-clone-and-run path and a complete Windows setup bundle. A pinned public Edition
-container image is not currently available.
+Edition release. The `v0.3.1` candidate supports a Git clone-and-run path and a
+one-file Windows installer. A pinned public Edition container image is not
+currently available.
 
 ## Release Inputs
 
@@ -125,15 +125,15 @@ untested; do not imply broader support from automated checks alone.
 Only after Saleem approves the candidate:
 
 1. Commit the Edition assembly with its manifest and documentation.
-2. Build, audit, and manually test the final setup bundle and standalone Setup
-   Companion from that committed state.
+2. Build, audit, and manually test the final one-file Windows installer and
+   standalone Setup Companion from that committed state.
 3. Create and push the exact version tag without advancing public `main`; mark
    release-candidate tags as prereleases.
-4. Publish the standalone EXE, its checksum, the complete setup ZIP, and the
-   ZIP checksum under that tag.
+4. Publish the standalone Companion EXE and checksum for Git-clone bootstrap,
+   plus the one-file Windows installer and its checksum, under that tag.
 5. Verify the public assets and checksums.
 6. Push `main` only after the bootstrap URL pinned there is live and verified.
-7. Test the published setup bundle and a fresh clone from public `main`.
+7. Test the published installer and a fresh clone from public `main`.
 8. Build and publish a pinned container image when that distribution path is
    ready.
 
@@ -146,24 +146,26 @@ tag and immutable digest when a public image is introduced.
 
 ## Current Distribution Paths
 
-The `v0.3.0` release has two Windows acquisition paths:
+The `v0.3.1` candidate has two Windows acquisition paths:
 
-- A complete versioned setup ZIP contains the committed Edition checkout and a
-  root `Setup-MobileEdition.exe`. Users extract it and run
-  `Setup-MobileEdition.cmd`; Git is not required.
+- A one-file Windows installer contains the committed Edition checkout and the
+  visual Setup Companion. It installs for the current user, creates an optional
+  desktop shortcut, and can open guided setup when installation finishes. Git
+  is not required.
 - A Git clone contains the same launcher and an immutable bootstrap manifest.
   When no local Companion exists, the launcher downloads the exact versioned
   standalone EXE, verifies SHA-256 before launch, caches it in an
   ignored checkout-relative directory, and falls back to terminal Guided Setup
   if bootstrap is unavailable.
 
-The standalone EXE is a bootstrap asset, not an independent installation. Both
-paths configure and run the same release Compose stack. The default inherited
-`docker-compose.yml` remains the Core development workflow and is not the
-Edition release command. The visual bootstrap and setup-bundle paths become
-publicly usable only after the matching versioned release assets are published.
+The standalone Companion EXE is a bootstrap asset for Git clones, not the
+newcomer installation. Both paths configure and run the same release Compose
+stack. The default inherited `docker-compose.yml` remains the Core development
+workflow and is not the Edition release command. The visual bootstrap and
+installer paths become publicly usable only after the matching versioned
+release assets are published.
 
-## Local Windows Setup Bundle Candidate
+## Local Windows Setup Bundle Tool
 
 Maintainers can create an unpublished local Windows setup-bundle candidate from
 a clean checkout:
@@ -174,10 +176,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Build-MobileEdit
 
 The builder runs `npm ci` from `setup-companion/package-lock.json`, builds the
 Setup Companion in release `--no-bundle` mode, archives committed `HEAD`, adds
-the companion as root `Setup-MobileEdition.exe`, writes
-`SETUP-BUNDLE-MANIFEST.json`, and stores the zip plus `.sha256` file under
-ignored `artifacts/setup-bundles/`. This is a local inspection artifact only;
-publishing still requires Saleem's explicit release approval.
+the companion as root `Setup-MobileEdition.exe`, and writes a legacy setup ZIP
+under ignored `artifacts/setup-bundles/`. The built Companion can be inspected
+or used as the standalone clone-bootstrap asset, but the ZIP is no longer a
+public acquisition path. Publishing still requires Saleem's explicit release
+approval.
 
 ## Local Windows One-File Installer Candidate
 
@@ -192,5 +195,6 @@ The builder archives committed `HEAD` into an ignored staging payload, supplies
 that payload to a build-only Tauri NSIS configuration as an `edition` resource,
 builds a current-user Windows installer, and stores the versioned
 `feedback-mobile-edition-<edition-version>-windows-setup.exe` plus `.sha256`
-file under ignored `artifacts/windows-installer/`. Do not install or publish
-this artifact until the prototype has passed manual acceptance.
+file under ignored `artifacts/windows-installer/`. Manual acceptance is still
+required for every final candidate, and publishing requires Saleem's explicit
+release approval.

@@ -34,11 +34,12 @@ fee[dB]ack release.
 
 ## Quick Start
 
-Choose either the Windows installer or a Git clone. Both paths
-run the same Docker-based Mobile Edition and open the same visual Setup
-Companion. Both require Docker Desktop with Docker Compose,
-[Tailscale for Windows](https://tailscale.com/download/windows), the Tailscale
-app on your mobile devices, and a fee[dB]ack-compatible song library.
+Choose either the Windows installer or a Git clone. Both paths run the same
+Docker-based Mobile Edition and open the same visual Setup Companion. Both
+require [Docker Desktop](https://www.docker.com/products/docker-desktop/) with
+Docker Compose and a fee[dB]ack-compatible song library. For private phone and
+tablet access, also install [Tailscale for Windows](https://tailscale.com/download/windows)
+and the Tailscale app on those devices.
 
 ### Download The Windows Installer
 

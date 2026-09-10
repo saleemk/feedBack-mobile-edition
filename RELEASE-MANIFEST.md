@@ -1,8 +1,8 @@
 # Mobile Edition Release Manifest
 
-Edition version: `0.3.0`
-Status: development after v0.3.0
-Captured: 2026-09-09
+Edition version: `0.3.1`
+Status: release candidate validated; final packaging and publication pending
+Captured: 2026-09-10
 
 This manifest pins the source inputs used by this checkout. It is intentionally
 separate from the core application's `VERSION` file.
@@ -29,71 +29,65 @@ with BtbN's retained final monthly build for July 2026:
 This is an Edition packaging override. The pinned Core snapshot remains
 unchanged.
 
-The Windows Setup Companion for this release was built from Edition commit
-`eeb81932b95845146202b1975e948bbaa2f351d2`:
+The accepted one-file Windows installer rehearsal was built from Edition commit
+`51cab2b2c1a85416cc71abb7ed2a37a86e326552`:
 
-- Bootstrap schema: `feedback-mobile-edition.setup-companion-bootstrap.v1`
-- Companion version: `v0.3.0`
-- Standalone asset:
-  `https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0/Setup-MobileEdition.exe`
-- Companion SHA-256:
-  `a8a7b60363f9ff2019db579e0958fb5afe6db8f0cec6a14eddaa38b8cb89a842`
+- Candidate version: `v0.3.1-rc.1`
+- Candidate filename:
+  `feedback-mobile-edition-v0.3.1-rc.1-windows-setup.exe`
+- Candidate size: `536.7 MiB`
+- Candidate SHA-256:
+  `6f077a2ae25143cbb1a23cb6e4e43b59ff89f745ef5f249e16580485bc267796`
+- Bundled Career venues: Bar and Club. Arena is intentionally omitted from the
+  initial installer and remains an optional upstream download.
 
-The final Edition commit and setup ZIP checksum are recorded by the release tag,
-the bundle's `SETUP-BUNDLE-MANIFEST.json`, and its adjacent checksum file after
-the documentation commit. They are not embedded here because doing so would
-make the release archive identify itself recursively.
+This rehearsal artifact is not the final public asset. Before the final tag,
+build the standalone Companion and installer from the final committed state,
+update `SETUP-COMPANION-BOOTSTRAP.json` with the immutable `v0.3.1` Companion
+URL and SHA-256, and rerun the focused launcher, installer, and manual checks.
+The release tag and adjacent checksum files record the final artifact identity;
+checksums are not embedded here because that would make the release payload
+identify itself recursively.
 
 ## Validation Recorded
 
-- Core offline-PWA and feedpak-gate tests passed: `34/34`.
-- Feedpak conformance passed all four layers against specification commit
-  `52548b742f64c2a35052a141976ea1b7889f4b1a` and all seven committed packages.
+- The complete Core Python suite passed under the CI platform, Linux Python
+  3.12: `2878 passed`, `4 skipped`, `0 failed`.
+- The full Edition root JavaScript suite passed: `1572/1572`.
+- Setup Companion JavaScript tests passed: `1656/1656`.
+- Setup Companion Rust tests passed: `29/29`; `cargo fmt --check`, Clippy with
+  warnings denied, and the optimized Tauri `--no-bundle` build also passed.
+- All nine PowerShell setup suites passed: bundle and installer construction,
+  release Compose, server/device actions, library selection, guided setup,
+  launcher/bootstrap, and setup doctor.
 - Edition ESLint completed with zero errors; twelve existing size and unused
   directive warnings remain non-blocking.
-- Two clean Tailwind rebuilds produced identical SHA-256
+- A pinned Tailwind rebuild produced no tracked diff; the stylesheet SHA-256 is
   `4ae5b85ea40c83970b7874d7c867ab0793980544d093cc71c3eb476109cb35a4`.
-- Setup Companion JavaScript tests passed: `40/40` using cross-platform Node
-  test discovery.
-- The full Edition root JavaScript suite passed: `1339/1339`.
-- Mobile UI JavaScript syntax checks passed.
-- Section Map tests passed: `23/23`.
-- Core JavaScript tests passed: `61/61`.
-- Core Python tests passed: `23/23`.
-- Practice-package and highway snapshot regressions passed: `19/19`.
-- Offline practice storage startup and retry tests passed: `12/12`.
-- Current focused Core offline PWA suite passed: `134/134`.
-- The current Edition snapshot passed online startup and offline recovery smoke
-  testing, including grouped artwork cards, playback, arrangement switching,
-  seeking, Mobile UI controls, Section Map, and deletion confirmation.
-- Clean exported-index image build and startup passed.
-- Bundled Mobile UI, Section Map, service worker, and diagnostic practice
-  package manifest were verified in the isolated stack.
-- Manual mobile and offline playback checks passed for the tested scenarios.
-- Normal iPhone Safari recovered from an initial storage failure and downloaded
-  an offline package; Private Browsing truthfully reported OPFS unavailable.
-- The clean Edition candidate passed final online startup, offline download,
-  server-unavailable recovery, and offline playback testing.
-- The published `v0.3.0-rc.1` Windows setup bundle passed a clean user-flow
-  rehearsal: library selection, server startup, private Tailscale HTTPS, QR
-  device connection, online playback, offline download, server shutdown,
-  offline playback, and arrangement switching.
-- Setup Companion JavaScript tests passed: `40/40`.
-- The dependency-free PowerShell suites for setup orchestration, setup doctor,
-  launcher/bootstrap, library selection, server/device actions, and bundle
-  construction passed.
-- The secure clone bootstrap tests covered strict manifest validation, local
-  precedence, explicit terminal arguments, verified cache reuse, corrupt-cache
-  replacement, download/hash/cache failures, temporary-file cleanup, and
-  terminal fallback without real network access.
-- An extracted Windows setup-bundle rehearsal opened the visual Companion from
-  `Setup-MobileEdition.cmd` against the fresh extracted checkout without using
-  terminal fallback.
-- The audited pre-documentation bundle contained 1,035 entries with no tracked
-  `.env`, Git metadata, local handoff, build cache, song library, or generated
-  artifact paths. Its embedded Companion hash matched the bootstrap pin.
-- The Setup Companion is not digitally signed. Windows may display
-  an unrecognized-app warning; published checksums remain part of the release
+- All 14 bundled plugin manifests passed ID, name, casing, and directory checks.
+- Feedpak conformance passed all four layers against specification commit
+  `52548b742f64c2a35052a141976ea1b7889f4b1a`, including all seven committed
+  packages.
+- Release Compose validation and a clean `--no-cache` image build passed. The
+  local candidate image ID is
+  `sha256:1022013360888ebf37b94b3edf6b0403498868e65237f0314bd24d8d1cea2192`.
+- An isolated candidate container returned HTTP 200, reported all 14 plugins,
+  and included Career, Mobile UI, and Section Map. The user's existing server
+  and external library were not replaced for this smoke check.
+- Manual Windows acceptance covered uninstall/reinstall, prerequisite links,
+  library selection, Docker start/stop/restart, Tailscale private HTTPS, QR
+  device connection, online playback, offline download in a normal browser
+  tab, and Career visibility. Private Browsing correctly exposed its OPFS
+  storage limitation.
+- The one-file installer includes no Git metadata or local configuration and
+  reduced the accepted rehearsal download from about `875.6 MiB` to `536.7 MiB`
+  by omitting Arena while retaining Bar and Club.
+- Repository and tracked-path audits found no `.env`, personal paths, private
+  test URLs, song libraries, caches, build output, credentials, or certificate
+  files. The Docker build context uses a narrow allowlist and now prunes local
+  test/build trees before traversal.
+- The Setup Companion is not digitally signed. Windows may display an
+  unrecognized-app warning; published checksums remain part of the release
   verification path.
 
 ## Known Browser Storage Limits
@@ -107,26 +101,21 @@ make the release archive identify itself recursively.
 
 ## Release Notes
 
-- Adds the visual Windows Setup Companion with guided system checks, library
-  selection, Docker server controls, Tailscale recovery, and device connection.
-- Adds a local QR device guide and a ready-state shortcut for connecting a
-  phone or tablet.
-- Adds a complete Windows setup ZIP for users who do not want to install Git.
-- Adds a secure clone bootstrap that downloads one exact versioned Companion,
-  verifies SHA-256 before launch, caches it locally, and retains terminal Guided
-  Setup as the failure fallback.
-- Core, Mobile UI, and Section Map source pins are unchanged from `v0.2.0`;
+- Replaces the newcomer setup ZIP with one Windows installer that installs the
+  Edition and opens the visual Setup Companion.
+- Keeps the Git clone path for experienced users, with one immutable verified
+  Companion download and terminal Guided Setup as the failure fallback.
+- Simplifies the Companion around first setup instead of managing previous
+  Edition installations or presenting version-selection controls.
+- Improves library-save feedback and guided progression across Library, Server,
+  Check, and Devices while tolerating users who complete steps in another order.
+- Adds start, restart, and stop controls for the local Docker server.
+- Adds prerequisite links in the installer, a local QR device guide, a
+  ready-state phone/tablet shortcut, and clickable private HTTPS URLs.
+- Includes Bar and Club Career venues in the installer while leaving the much
+  larger Arena pack as an optional upstream download.
+- Core, Mobile UI, and Section Map source pins are unchanged from `v0.3.0`;
   this release focuses on setup and distribution.
-- Offline practice packages now store every supported arrangement while sharing
-  one downloaded audio file per song.
-- The offline Player supports arrangement switching, Mobile UI controls,
-  Section Map, 3D Highway and Venue, seeking, and recovery when the server is
-  unavailable.
-- The offline library groups arrangements into one artwork card per song and
-  uses a compact mobile layout.
-- Mobile UI is updated to `v0.5.0`.
-- This checkout vendors the two plugin snapshots under `plugins/` so a clone
-  is self-contained.
-- User libraries and configuration are external mounts and are not part of the
-  repository or image build context.
+- User libraries and configuration remain external mounts and are not part of
+  the repository, installer payload, or image build context.
 - A pinned public Edition container image has not been published.
