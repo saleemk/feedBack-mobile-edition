@@ -76,6 +76,8 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
+Var DockerDownloadLink
+Var TailscaleDownloadLink
 
 Name "${PRODUCTNAME}"
 BrandingText "${COPYRIGHT}"
@@ -168,9 +170,30 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
 !define MUI_WELCOMEPAGE_TITLE "Install fee[dB]ack Mobile Edition"
-!define MUI_WELCOMEPAGE_TEXT "Run your song library from one private local server, with a mobile-first interface and offline practice.$\r$\n$\r$\nFor local setup, have these ready:$\r$\n- Docker Desktop$\r$\n- Your song library folder$\r$\n$\r$\nFor private phone and tablet access, also install Tailscale on this computer and those devices.$\r$\n$\r$\nClick Next to install Mobile Edition."
+!define MUI_WELCOMEPAGE_TEXT "Use your existing song library from one private server, with a mobile-first interface and offline practice built in.$\r$\n$\r$\nBefore you continue:$\r$\n- Docker Desktop runs the local server.$\r$\n- Choose a folder containing your songs during setup.$\r$\n$\r$\nTailscale is optional for local use. Install it on this computer and your phone or tablet for private HTTPS access.$\r$\n$\r$\nInstall prerequisites first if needed, then click Next."
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW WelcomeShow
 !insertmacro MUI_PAGE_WELCOME
+
+Function WelcomeShow
+  ${NSD_CreateLink} 120u 157u 195u 10u "Get Docker Desktop"
+  Pop $DockerDownloadLink
+  ${NSD_OnClick} $DockerDownloadLink OpenDockerDownload
+
+  ${NSD_CreateLink} 120u 172u 195u 10u "Get Tailscale for Windows"
+  Pop $TailscaleDownloadLink
+  ${NSD_OnClick} $TailscaleDownloadLink OpenTailscaleDownload
+FunctionEnd
+
+Function OpenDockerDownload
+  Pop $0
+  ExecShell "open" "https://docs.docker.com/desktop/setup/install/windows-install/"
+FunctionEnd
+
+Function OpenTailscaleDownload
+  Pop $0
+  ExecShell "open" "https://tailscale.com/download/windows"
+FunctionEnd
 
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""

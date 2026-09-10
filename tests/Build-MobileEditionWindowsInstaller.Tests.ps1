@@ -282,9 +282,11 @@ try {
             $templatePath = Join-Path -Path $RepositoryRoot -ChildPath 'setup-companion\src-tauri\windows-installer.nsi'
             $template = Get-Content -LiteralPath $templatePath -Raw
             Assert-True $template.Contains('Install fee[dB]ack Mobile Edition') 'Installer welcome title should name the product action.'
-            Assert-True $template.Contains('Run your song library from one private local server') 'Installer welcome text should describe the product.'
-            Assert-True $template.Contains('- Docker Desktop') 'Installer welcome text should name Docker Desktop.'
-            Assert-True $template.Contains('For private phone and tablet access, also install Tailscale') 'Installer welcome text should scope the Tailscale requirement to private mobile access.'
+            Assert-True $template.Contains('Use your existing song library from one private server') 'Installer welcome text should describe the product.'
+            Assert-True $template.Contains('Docker Desktop runs the local server') 'Installer welcome text should explain Docker Desktop.'
+            Assert-True $template.Contains('Tailscale is optional for local use') 'Installer welcome text should scope Tailscale to private mobile access.'
+            Assert-True $template.Contains('https://docs.docker.com/desktop/setup/install/windows-install/') 'Installer welcome should link to the official Docker Desktop setup page.'
+            Assert-True $template.Contains('https://tailscale.com/download/windows') 'Installer welcome should link to the official Tailscale Windows download page.'
             Assert-True $template.Contains('Delete "$DESKTOP\${PRODUCTNAME}.lnk"') 'Explicit desktop shortcut creation should replace a stale shortcut.'
             Assert-True $template.Contains('CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"') 'Desktop shortcuts should target the current installation directory.'
         })
