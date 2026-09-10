@@ -76,6 +76,7 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
+Var WelcomeBody
 Var DockerDownloadLink
 Var TailscaleDownloadLink
 
@@ -169,19 +170,27 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
+!define MOBILE_EDITION_WELCOME_TEXT "Use your existing song library from one private server, with a mobile-first interface and offline practice built in.$\r$\n$\r$\nBefore you continue:$\r$\n- Docker Desktop runs the local server.$\r$\n- Choose a folder containing your songs during setup.$\r$\n$\r$\nTailscale is optional for local use. Install it on this computer and your phone or tablet for private HTTPS access."
 !define MUI_WELCOMEPAGE_TITLE "Install fee[dB]ack Mobile Edition"
-!define MUI_WELCOMEPAGE_TEXT "Use your existing song library from one private server, with a mobile-first interface and offline practice built in.$\r$\n$\r$\nBefore you continue:$\r$\n- Docker Desktop runs the local server.$\r$\n- Choose a folder containing your songs during setup.$\r$\n$\r$\nTailscale is optional for local use. Install it on this computer and your phone or tablet for private HTTPS access.$\r$\n$\r$\nInstall prerequisites first if needed, then click Next."
+!define MUI_WELCOMEPAGE_TEXT "${MOBILE_EDITION_WELCOME_TEXT}"
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW WelcomeShow
 !insertmacro MUI_PAGE_WELCOME
 
 Function WelcomeShow
-  ${NSD_CreateLink} 120u 172u 92u 10u "Get Docker Desktop"
+  ShowWindow $mui.WelcomePage.Text ${SW_HIDE}
+  ${NSD_CreateLabel} 120u 45u 195u 103u "${MOBILE_EDITION_WELCOME_TEXT}"
+  Pop $WelcomeBody
+  SetCtlColors $WelcomeBody "${MUI_TEXTCOLOR}" "${MUI_BGCOLOR}"
+
+  ${NSD_CreateLink} 120u 158u 92u 14u "Get Docker Desktop"
   Pop $DockerDownloadLink
+  SetCtlColors $DockerDownloadLink "0066CC" "${MUI_BGCOLOR}"
   ${NSD_OnClick} $DockerDownloadLink OpenDockerDownload
 
-  ${NSD_CreateLink} 217u 172u 98u 10u "Get Tailscale"
+  ${NSD_CreateLink} 217u 158u 98u 14u "Get Tailscale"
   Pop $TailscaleDownloadLink
+  SetCtlColors $TailscaleDownloadLink "0066CC" "${MUI_BGCOLOR}"
   ${NSD_OnClick} $TailscaleDownloadLink OpenTailscaleDownload
 FunctionEnd
 
