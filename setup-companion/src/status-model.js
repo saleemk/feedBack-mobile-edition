@@ -225,6 +225,7 @@ export function buildServerModel(payload) {
   const server = rowsByKey.get('server') || {};
   const serverReady = server.status === 'ready';
   const serverOwnershipConflict = repository.status === 'ready' && serverReady && docker.status !== 'ready';
+  const canStopServer = repository.status === 'ready' && docker.status === 'ready' && serverReady && !serverOwnershipConflict;
   const dockerRemediation = docker.remediation || '';
   const prerequisiteLabels = {
     get_docker: 'Get Docker Desktop',
@@ -261,12 +262,16 @@ export function buildServerModel(payload) {
   const actionHint = actionKind === 'prerequisite'
     ? docker.reason || 'Complete this prerequisite, then refresh checks.'
     : serverReady
-    ? 'Restart only the Mobile Edition web service.'
+    ? 'Restart the Mobile Edition web service or stop the local release stack.'
     : 'Start the Mobile Edition release stack. The first build may take a few minutes.';
 
   return {
     action,
     actionKind,
+    stopAction: canStopServer ? 'stop' : 'none',
+    stopActionKind: canStopServer ? 'server' : 'none',
+    stopActionLabel: 'Stop server',
+    canStop: canStopServer,
     actionLabel: serverOwnershipConflict
       ? 'Resolve conflict'
       : actionKind === 'prerequisite'

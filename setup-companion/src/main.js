@@ -37,6 +37,7 @@ const serverSummary = document.querySelector('#server-summary-text');
 const serverChecksList = document.querySelector('#server-checks-list');
 const serverMessage = document.querySelector('#server-message');
 const serverActionButton = document.querySelector('#server-action');
+const serverStopActionButton = document.querySelector('#server-stop-action');
 const serverProgress = document.querySelector('#server-progress');
 const serverProgressTitle = document.querySelector('#server-progress-title');
 const serverProgressElapsed = document.querySelector('#server-progress-elapsed');
@@ -146,11 +147,15 @@ function formatElapsedTime(milliseconds) {
 }
 
 function serverActionProgressLabel(action) {
-  return action === 'restart' ? 'Restarting Mobile Edition' : 'Starting Mobile Edition';
+  if (action === 'restart') return 'Restarting Mobile Edition';
+  if (action === 'stop') return 'Stopping Mobile Edition';
+  return 'Starting Mobile Edition';
 }
 
 function serverActionButtonLabel(action) {
-  return action === 'restart' ? 'Restarting...' : 'Starting...';
+  if (action === 'restart') return 'Restarting...';
+  if (action === 'stop') return 'Stopping...';
+  return 'Starting...';
 }
 
 function prerequisiteActionButtonLabel(action) {
@@ -511,6 +516,8 @@ function renderServerUnavailable(error) {
   serverMessage.textContent = 'Refresh checks before running a server action.';
   serverMessage.className = 'library-message tone-error';
   serverActionButton.disabled = true;
+  serverStopActionButton.disabled = true;
+  serverStopActionButton.hidden = true;
 }
 
 function renderServerState() {
@@ -527,10 +534,16 @@ function renderServerState() {
   serverActionButton.dataset.action = model.action;
   serverActionButton.textContent = prerequisiteActionRunning && prerequisiteActionView === 'server'
     ? prerequisiteActionButtonLabel(model.action)
-    : serverActionRunning
-    ? serverActionButtonLabel(serverActionKind || model.action)
+    : serverActionRunning && serverActionKind === model.action
+    ? serverActionButtonLabel(model.action)
     : model.actionLabel;
   serverActionButton.disabled = setupActionRunning() || !model.canRun || isWatchedPrerequisite('server', model);
+  serverStopActionButton.dataset.action = model.stopAction;
+  serverStopActionButton.hidden = !model.canStop;
+  serverStopActionButton.textContent = serverActionRunning && serverActionKind === model.stopAction
+    ? serverActionButtonLabel(model.stopAction)
+    : model.stopActionLabel;
+  serverStopActionButton.disabled = setupActionRunning() || !model.canStop;
   renderServerProgress();
 
   if (prerequisiteWait?.view === 'server') {
@@ -623,23 +636,30 @@ async function runPrerequisiteAction(action, view) {
   }
 }
 
-async function runServerAction() {
+async function runServerAction(actionOverride = '') {
   const model = buildServerModel(latestStatusPayload);
-  if (!model.canRun || setupActionRunning()) return;
-  if (isWatchedPrerequisite('server', model)) return;
-  if (model.actionKind === 'prerequisite') {
-    await runPrerequisiteAction(model.action, 'server');
-    return;
+  if (setupActionRunning()) return;
+  let action = model.action;
+  if (actionOverride) {
+    if (actionOverride !== model.stopAction || !model.canStop) return;
+    action = actionOverride;
+  } else {
+    if (!model.canRun) return;
+    if (isWatchedPrerequisite('server', model)) return;
+    if (model.actionKind === 'prerequisite') {
+      await runPrerequisiteAction(model.action, 'server');
+      return;
+    }
+    if (model.actionKind !== 'server') return;
   }
-  if (model.actionKind !== 'server') return;
   cancelPrerequisiteWait();
 
   const operation = ++actionSequence;
   serverActionMessage = '';
   serverActionTone = '';
-  setServerActionBusy(true, model.action);
+  setServerActionBusy(true, action);
   try {
-    const result = await bridge()('run_server_action', { action: model.action });
+    const result = await bridge()('run_server_action', { action });
     if (operation !== actionSequence) return;
     serverActionMessage = result.reason || 'Server action finished. Setup doctor refreshed.';
     serverActionTone = result.status === 'ready'
@@ -648,9 +668,9 @@ async function runServerAction() {
         ? 'error'
         : 'attention';
     if (result.statusPayload) {
-      renderStatus(result.statusPayload, { route: true, clearMessages: true });
+      renderStatus(result.statusPayload, { route: true, clearMessages: false });
     } else {
-      await refreshChecks({ route: true, clearMessages: true });
+      await refreshChecks({ route: true, clearMessages: false });
     }
   } catch (error) {
     if (operation !== actionSequence) return;
@@ -775,7 +795,12 @@ for (const button of viewButtons) {
 }
 browseLibraryButton.addEventListener('click', chooseLibrary);
 applyLibraryButton.addEventListener('click', applyLibrary);
-serverActionButton.addEventListener('click', runServerAction);
+serverActionButton.addEventListener('click', () => {
+  void runServerAction();
+});
+serverStopActionButton.addEventListener('click', () => {
+  void runServerAction('stop');
+});
 checkActionButton.addEventListener('click', () => {
   void runDeviceAction('check');
 });

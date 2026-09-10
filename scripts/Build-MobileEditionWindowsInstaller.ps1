@@ -96,6 +96,54 @@ function Assert-MobileEditionInstallerPayloadRequiredFiles {
     }
 }
 
+function Remove-MobileEditionInstallerPublishedVenuePacks {
+    param([string]$EditionDirectory)
+
+    $careerDirectory = Join-Path -Path $EditionDirectory -ChildPath 'plugins\career'
+    $venuesPath = Join-Path -Path $careerDirectory -ChildPath 'venues.json'
+    if (-not (Test-Path -LiteralPath $venuesPath -PathType Leaf)) {
+        throw 'Staged installer payload is missing Career venue metadata.'
+    }
+
+    try {
+        $venueConfiguration = Get-Content -LiteralPath $venuesPath -Raw | ConvertFrom-Json
+    } catch {
+        throw "Staged Career venue metadata is not valid JSON: $($_.Exception.Message)"
+    }
+
+    $venuePacksDirectory = [System.IO.Path]::GetFullPath((Join-Path -Path $careerDirectory -ChildPath 'venue-packs'))
+    foreach ($venueId in @('club', 'arena')) {
+        $venue = @($venueConfiguration.venues | Where-Object { $_.id -eq $venueId })
+        if ($venue.Count -ne 1) {
+            throw "Staged Career venue metadata must define $venueId exactly once."
+        }
+
+        $pack = $venue[0].pack
+        $packUri = $null
+        $packBytes = 0L
+        $hasPublishedMetadata = (
+            $null -ne $pack -and
+            [System.Uri]::TryCreate([string]$pack.url, [System.UriKind]::Absolute, [ref]$packUri) -and
+            $packUri.Scheme -eq 'https' -and
+            [string]$pack.sha256 -match '^[0-9a-fA-F]{64}$' -and
+            [string]$pack.sha256 -notmatch '^0{64}$' -and
+            [long]::TryParse([string]$pack.bytes, [ref]$packBytes) -and
+            $packBytes -gt 0
+        )
+        if (-not $hasPublishedMetadata) {
+            continue
+        }
+
+        $packDirectory = [System.IO.Path]::GetFullPath((Join-Path -Path $venuePacksDirectory -ChildPath $venueId))
+        if (-not (Test-MobileEditionBundleChildPath -Parent $venuePacksDirectory -Child $packDirectory)) {
+            throw "Refusing to remove an optional venue outside the staged venue-pack directory: $packDirectory"
+        }
+        if (Test-Path -LiteralPath $packDirectory) {
+            Remove-Item -LiteralPath $packDirectory -Recurse -Force
+        }
+    }
+}
+
 function New-MobileEditionInstallerStagingPayload {
     param(
         [string]$RepositoryRoot,
@@ -116,6 +164,7 @@ function New-MobileEditionInstallerStagingPayload {
     [System.IO.Compression.ZipFile]::ExtractToDirectory($archivePath, $resourcesRoot)
     Remove-Item -LiteralPath $archivePath -Force
     Assert-MobileEditionInstallerPayloadRequiredFiles -EditionDirectory $editionDirectory
+    Remove-MobileEditionInstallerPublishedVenuePacks -EditionDirectory $editionDirectory
 
     [pscustomobject]@{
         head = $head
@@ -149,6 +198,8 @@ function New-MobileEditionInstallerTauriConfig {
             nsis = [ordered]@{
                 installMode = 'currentUser'
                 languages = @('English')
+                installerIcon = 'icons/icon.ico'
+                template = 'windows-installer.nsi'
             }
         }) -Force
 

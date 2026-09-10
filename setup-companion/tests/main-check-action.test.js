@@ -110,6 +110,7 @@ function createDocument() {
     'server-checks-list',
     'server-message',
     'server-action',
+    'server-stop-action',
     'server-progress',
     'server-progress-title',
     'server-progress-elapsed',
@@ -121,10 +122,10 @@ function createDocument() {
     'devices-action',
   ];
   const elements = new Map(ids.map((id) => [id, new FakeElement('div', id)]));
-  for (const id of ['refresh', 'check-action', 'browse-library', 'apply-library', 'server-action', 'devices-action']) {
+  for (const id of ['refresh', 'check-action', 'browse-library', 'apply-library', 'server-action', 'server-stop-action', 'devices-action']) {
     elements.get(id).tagName = 'BUTTON';
   }
-  for (const id of ['library-view', 'server-view', 'devices-view', 'check-action-row', 'server-progress']) {
+  for (const id of ['library-view', 'server-view', 'devices-view', 'check-action-row', 'server-progress', 'server-stop-action']) {
     elements.get(id).hidden = true;
   }
 
@@ -362,6 +363,65 @@ test('server action enables Check guide action after ready status and busy clean
   assert.equal(document.elements.get('check-action-row').hidden, false);
   assert.equal(document.elements.get('check-action').disabled, false);
   assert.equal(document.elements.get('check-action').dataset.action, 'open_guide');
+});
+
+test('ready Server view exposes separate Restart and Stop controls', async () => {
+  const stopped = clone(await fixture('ready'));
+  stopped.checks.docker.status = 'needs_action';
+  stopped.checks.docker.reason = 'The Mobile Edition container is not running.';
+  stopped.checks.docker.remediation = 'start_server';
+  stopped.checks.server.status = 'needs_action';
+  stopped.checks.server.reason = 'The local Mobile Edition server is not reachable on localhost.';
+  stopped.checks.privateHttps.status = 'needs_action';
+  delete stopped.checks.privateHttps.url;
+
+  let resolveStopAction;
+  const stopAction = new Promise((resolve) => {
+    resolveStopAction = resolve;
+  });
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    serverResult: () => stopAction,
+    deviceResult: { status: 'ready', reason: 'Device guide created and opened.' },
+  });
+
+  document.viewButtons.find((button) => button.dataset.view === 'server').click();
+  assert.equal(document.elements.get('server-action').textContent, 'Restart server');
+  assert.equal(document.elements.get('server-action').disabled, false);
+  assert.equal(document.elements.get('server-stop-action').hidden, false);
+  assert.equal(document.elements.get('server-stop-action').textContent, 'Stop server');
+  assert.equal(document.elements.get('server-stop-action').disabled, false);
+
+  document.elements.get('server-stop-action').click();
+  await tick();
+
+  assert.deepEqual(
+    calls.filter((call) => call.command === 'run_server_action').map((call) => call.args.action),
+    ['stop'],
+  );
+  assert.equal(document.elements.get('server-action').textContent, 'Restart server');
+  assert.equal(document.elements.get('server-action').disabled, true);
+  assert.equal(document.elements.get('server-stop-action').textContent, 'Stopping...');
+  assert.equal(document.elements.get('server-stop-action').disabled, true);
+
+  resolveStopAction({
+    status: 'ready',
+    reason: 'Docker stop command completed and the server is stopped. Setup doctor refreshed.',
+    statusPayload: stopped,
+  });
+  await tick();
+  await tick();
+
+  assert.equal(document.elements.get('server-view').hidden, false);
+  assert.equal(document.elements.get('server-stop-action').hidden, true);
+  assert.equal(document.elements.get('server-action').dataset.action, 'start');
+  assert.equal(document.elements.get('server-action').textContent, 'Start server');
+  assert.equal(document.elements.get('server-action').disabled, false);
+  assert.equal(
+    document.elements.get('server-message').textContent,
+    'Docker stop command completed and the server is stopped. Setup doctor refreshed.',
+  );
+  assert.match(document.elements.get('server-message').className, /tone-ready/);
 });
 
 test('library apply shows saving and checking feedback through routing refresh', async () => {

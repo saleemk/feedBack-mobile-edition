@@ -34,36 +34,36 @@ fee[dB]ack release.
 
 ## Quick Start
 
-Choose either the complete Windows release bundle or a Git clone. Both paths
+Choose either the Windows installer or a Git clone. Both paths
 run the same Docker-based Mobile Edition and open the same visual Setup
 Companion. Both require Docker Desktop with Docker Compose,
 [Tailscale for Windows](https://tailscale.com/download/windows), the Tailscale
 app on your mobile devices, and a fee[dB]ack-compatible song library.
 
-### Download The Windows Setup Bundle
+### Download The Windows Installer
 
-This path does not require Git. For a release that provides Windows setup
-assets:
+This is the simplest path and does not require Git:
 
 1. Open [GitHub Releases](https://github.com/saleemk/feedBack-mobile-edition/releases)
-   and download the versioned setup ZIP. For `v0.3.0`, the filename is
-   `feedback-mobile-edition-v0.3.0-windows-setup.zip`.
+   and download `feedback-mobile-edition-v<version>-windows-setup.exe`.
 2. Optionally download the adjacent `.sha256` file and compare it with:
 
 ```powershell
-Get-FileHash .\feedback-mobile-edition-v0.3.0-windows-setup.zip -Algorithm SHA256
+Get-FileHash .\feedback-mobile-edition-*-windows-setup.exe -Algorithm SHA256
 ```
 
-3. Extract the ZIP, open the extracted folder, and double-click
-   `Setup-MobileEdition.cmd`.
+3. Run the installer. Leave **Run fee[dB]ack Mobile Edition** selected to open
+   the visual Setup Companion when installation finishes.
 
 The Companion is not digitally signed, so Windows may show an
-unrecognized-app warning. Verify that the bundle came from this repository's
+unrecognized-app warning. Verify that the installer came from this repository's
 GitHub release and that its checksum matches before running it.
 
-The complete bundle includes `Setup-MobileEdition.exe` and the source checkout
-it configures. The separate standalone EXE release asset supports secure clone
-bootstrap; it is not useful by itself without the rest of the checkout.
+The installer includes Mobile Edition and the Setup Companion. The starter Bar
+and Club Career venues are included. The larger Arena venue is downloaded from
+the official fee[dB]ack release when it becomes available in Career mode,
+keeping the initial Windows download smaller. The regular 3D Venue
+visualization does not depend on these Career packs.
 
 ### Clone The Repository
 
@@ -80,11 +80,11 @@ Set-Location feedBack-mobile-edition
 2. Open the checkout folder in File Explorer and double-click
    `Setup-MobileEdition.cmd`.
 
-On the first visual launch, the launcher downloads the exact Companion version
-pinned by this checkout, verifies its SHA-256 checksum, caches it locally, and
-then opens it. If the download is unavailable or verification fails, the
-launcher reports the problem and deliberately falls back to terminal Guided
-Setup. The managed cache is local to the checkout and is not committed.
+On the first visual launch from a Git clone, the launcher downloads the exact
+Companion version pinned by the checkout, verifies its SHA-256 checksum, caches
+it locally, and then opens it. If the download is unavailable or verification
+fails, the launcher reports the problem and deliberately falls back to terminal
+Guided Setup. The managed cache is local to the checkout and is not committed.
 
 ### Finish Guided Setup
 

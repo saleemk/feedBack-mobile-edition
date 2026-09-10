@@ -44,7 +44,8 @@ function Remove-TempLibraryRepo {
 $repo = New-TempLibraryRepo
 try {
     $inspect = Invoke-MobileEditionLibraryConfiguration -RepositoryRoot $repo.root -Mode Inspect
-    Assert-True (-not $inspect.valid) 'Inspect should report the missing default library.'
+    Assert-True (-not $inspect.valid) 'Inspect should report that first-run setup needs a library.'
+    Assert-Equal $inspect.reason 'Choose a song library to complete initial setup.' 'Inspect should treat a missing .env as normal first-run setup.'
 
     $validate = Invoke-MobileEditionLibraryConfiguration -RepositoryRoot $repo.root -Mode Validate -LibraryPath $repo.library
     Assert-True $validate.valid 'Validate should accept an existing folder.'
@@ -69,8 +70,11 @@ $repo = New-TempLibraryRepo
 try {
     Set-Content -LiteralPath $repo.env -Value @('MALFORMED') -Encoding UTF8
     $before = Get-Content -LiteralPath $repo.env -Raw
+    $inspect = Invoke-MobileEditionLibraryConfiguration -RepositoryRoot $repo.root -Mode Inspect
     $apply = Invoke-MobileEditionLibraryConfiguration -RepositoryRoot $repo.root -Mode Apply -LibraryPath $repo.library
     $after = Get-Content -LiteralPath $repo.env -Raw
+    Assert-True (-not $inspect.valid) 'Inspect should reject a malformed existing .env.'
+    Assert-Equal $inspect.reason '.env must be repaired before the library can be configured.' 'Inspect should retain repair wording for malformed .env.'
     Assert-True (-not $apply.valid) 'Apply should reject a malformed existing .env.'
     Assert-Equal $after $before 'Rejected Apply must not alter malformed configuration.'
 } finally {

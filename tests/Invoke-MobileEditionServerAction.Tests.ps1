@@ -44,6 +44,7 @@ $docker = New-TestCommand -Source 'C:\Program Files\Docker\docker.exe'
 
 Assert-Equal ((Get-MobileEditionServerActionArguments -Action Start) -join '|') 'compose|-f|docker-compose.release.yml|up|-d|--build' 'Start arguments should use the release compose start path.'
 Assert-Equal ((Get-MobileEditionServerActionArguments -Action Restart) -join '|') 'compose|-f|docker-compose.release.yml|restart|web' 'Restart arguments should target only the release web service.'
+Assert-Equal ((Get-MobileEditionServerActionArguments -Action Stop) -join '|') 'compose|-f|docker-compose.release.yml|down' 'Stop arguments should stop the release Compose stack without removing external mounts.'
 
 $startCalls = [System.Collections.ArrayList]::new()
 $startDoctorCalls = 0
@@ -97,6 +98,79 @@ $restartResult = Invoke-MobileEditionServerAction `
 
 Assert-Equal $restartResult.status 'ready' 'Successful Restart should be ready.'
 Assert-Equal ($restartCalls[0].arguments -join '|') 'compose|-f|docker-compose.release.yml|restart|web' 'Restart should pass the exact release web-service arguments.'
+
+$stopCalls = [System.Collections.ArrayList]::new()
+$stopSleepCalled = $false
+$stopDoctorCalls = 0
+$stopResult = Invoke-MobileEditionServerAction `
+    -RepositoryRoot $repoRoot `
+    -Action Stop `
+    -DockerCommand $docker `
+    -DoctorRunner {
+        param($RepositoryRoot)
+        $script:stopDoctorCalls += 1
+        if ($script:stopDoctorCalls -eq 1) {
+            return New-TestReport -DockerStatus 'ready' -ServerStatus 'ready'
+        }
+        New-TestReport -DockerStatus 'needs_action' -ServerStatus 'needs_action'
+    } `
+    -SleepHandler {
+        $script:stopSleepCalled = $true
+    } `
+    -CommandRunner {
+        param($FilePath, $Arguments, $WorkingDirectory)
+        [void]$stopCalls.Add([pscustomobject]@{
+            filePath = $FilePath
+            arguments = @($Arguments)
+            workingDirectory = $WorkingDirectory
+        })
+        [pscustomobject]@{ exitCode = 0; output = 'stopped' }
+    } `
+    -SkipDockerDiscovery
+
+Assert-Equal $stopResult.status 'ready' 'Successful Stop should be ready once the refreshed report shows the server stopped.'
+Assert-True $stopResult.changed 'Successful Stop should report a change.'
+Assert-Equal $stopDoctorCalls 2 'Stop should read the doctor before and once after the action.'
+Assert-True (-not $stopSleepCalled) 'Stop must not wait for server readiness.'
+Assert-Equal $stopCalls.Count 1 'Stop should invoke Docker once.'
+Assert-Equal ($stopCalls[0].arguments -join '|') 'compose|-f|docker-compose.release.yml|down' 'Stop should pass the exact release Compose down arguments.'
+Assert-Equal $stopResult.report.checks.server.status 'needs_action' 'Stop should return the refreshed stopped-server report.'
+
+$stopNotReadyCalls = [System.Collections.ArrayList]::new()
+$stopNotReady = Invoke-MobileEditionServerAction `
+    -RepositoryRoot $repoRoot `
+    -Action Stop `
+    -DockerCommand $docker `
+    -DoctorRunner {
+        param($RepositoryRoot)
+        New-TestReport -DockerStatus 'ready' -ServerStatus 'needs_action'
+    } `
+    -CommandRunner {
+        [void]$stopNotReadyCalls.Add('called')
+        throw 'Command runner must not be called when Stop prerequisites are not ready.'
+    } `
+    -SkipDockerDiscovery
+
+Assert-Equal $stopNotReady.status 'needs_action' 'Stop should require the local server to be ready first.'
+Assert-Equal $stopNotReadyCalls.Count 0 'Stop should not invoke Docker when the server is already stopped.'
+
+$stopDockerBlockedCalls = [System.Collections.ArrayList]::new()
+$stopDockerBlocked = Invoke-MobileEditionServerAction `
+    -RepositoryRoot $repoRoot `
+    -Action Stop `
+    -DockerCommand $docker `
+    -DoctorRunner {
+        param($RepositoryRoot)
+        New-TestReport -DockerStatus 'needs_action' -ServerStatus 'ready'
+    } `
+    -CommandRunner {
+        [void]$stopDockerBlockedCalls.Add('called')
+        throw 'Command runner must not be called when this checkout Docker service is not ready.'
+    } `
+    -SkipDockerDiscovery
+
+Assert-Equal $stopDockerBlocked.status 'needs_action' 'Stop should require this checkout Docker/Compose service to be ready first.'
+Assert-Equal $stopDockerBlockedCalls.Count 0 'Stop should not invoke Docker for an ownership conflict.'
 
 $delayedDoctorCalls = 0
 $delayedSleepCalls = [System.Collections.ArrayList]::new()
@@ -222,7 +296,7 @@ Assert-True (-not $failed.reason.Contains('line four')) 'Failure reason should t
 
 $allowlistRejected = $false
 try {
-    Invoke-MobileEditionServerAction -RepositoryRoot $repoRoot -Action Stop -SkipDockerDiscovery | Out-Null
+    Invoke-MobileEditionServerAction -RepositoryRoot $repoRoot -Action Remove -SkipDockerDiscovery | Out-Null
 } catch {
     $allowlistRejected = $true
 }

@@ -114,6 +114,7 @@ pub struct LibraryResult {
 pub enum ServerAction {
     Start,
     Restart,
+    Stop,
 }
 
 impl ServerAction {
@@ -121,6 +122,7 @@ impl ServerAction {
         match self {
             Self::Start => "Start",
             Self::Restart => "Restart",
+            Self::Stop => "Stop",
         }
     }
 }
@@ -1126,7 +1128,11 @@ mod tests {
             serde_json::from_str::<ServerAction>("\"restart\"").expect("restart"),
             ServerAction::Restart
         );
-        assert!(serde_json::from_str::<ServerAction>("\"stop\"").is_err());
+        assert_eq!(
+            serde_json::from_str::<ServerAction>("\"stop\"").expect("stop"),
+            ServerAction::Stop
+        );
+        assert!(serde_json::from_str::<ServerAction>("\"remove\"").is_err());
     }
 
     #[test]
@@ -1134,6 +1140,7 @@ mod tests {
         let root = PathBuf::from(r"C:\Mobile Edition");
         let start = build_server_action_command_spec(&root, ServerAction::Start);
         let restart = build_server_action_command_spec(&root, ServerAction::Restart);
+        let stop = build_server_action_command_spec(&root, ServerAction::Stop);
 
         assert_eq!(start.program, "powershell.exe");
         assert_eq!(
@@ -1161,6 +1168,21 @@ mod tests {
                 r"C:\Mobile Edition\scripts\Invoke-MobileEditionServerAction.ps1",
                 "-Action",
                 "Restart",
+                "-RepositoryRoot",
+                r"C:\Mobile Edition",
+                "-Json",
+            ]
+        );
+        assert_eq!(
+            stop.args,
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\Mobile Edition\scripts\Invoke-MobileEditionServerAction.ps1",
+                "-Action",
+                "Stop",
                 "-RepositoryRoot",
                 r"C:\Mobile Edition",
                 "-Json",

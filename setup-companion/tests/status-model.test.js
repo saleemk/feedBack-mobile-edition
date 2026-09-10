@@ -81,6 +81,9 @@ test('buildServerModel chooses restart when the local server is ready', async ()
   assert.equal(model.action, 'restart');
   assert.equal(model.actionLabel, 'Restart server');
   assert.equal(model.canRun, true);
+  assert.equal(model.stopAction, 'stop');
+  assert.equal(model.stopActionLabel, 'Stop server');
+  assert.equal(model.canStop, true);
   assert.equal(model.rows.map((row) => row.key).join(','), 'docker,server');
 });
 
@@ -94,6 +97,8 @@ test('buildServerModel chooses start for a stopped server and blocks unsafe prer
   assert.equal(startable.actionKind, 'server');
   assert.equal(startable.actionLabel, 'Start server');
   assert.equal(startable.canRun, true);
+  assert.equal(startable.stopAction, 'none');
+  assert.equal(startable.canStop, false);
 
   const repositoryBlocked = buildServerModel(await fixture('needs-action'));
   assert.equal(repositoryBlocked.canRun, false);
@@ -172,6 +177,8 @@ test('buildServerModel disables control for existing server ownership conflicts'
   assert.equal(model.actionKind, 'none');
   assert.equal(model.actionLabel, 'Resolve conflict');
   assert.equal(model.canRun, false);
+  assert.equal(model.stopAction, 'none');
+  assert.equal(model.canStop, false);
   assert.equal(model.badgeLabel, 'Server conflict');
   assert.equal(model.badgeTone, 'error');
   assert.match(model.disabledReason, /server is responding/i);

@@ -67,6 +67,9 @@ function New-TestInstallerRepo {
     New-Item -ItemType Directory -Path (Join-Path -Path $root -ChildPath 'scripts') | Out-Null
     New-Item -ItemType Directory -Path (Join-Path -Path $root -ChildPath 'library') | Out-Null
     New-Item -ItemType Directory -Path (Join-Path -Path $root -ChildPath 'plugins\mobile_ui') | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path -Path $root -ChildPath 'plugins\career\venue-packs\bar') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path -Path $root -ChildPath 'plugins\career\venue-packs\club') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path -Path $root -ChildPath 'plugins\career\venue-packs\arena') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path -Path $root -ChildPath 'setup-companion\src-tauri') | Out-Null
 
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'Setup-MobileEdition.cmd') -Value '@echo off' -Encoding ASCII
@@ -80,7 +83,22 @@ function New-TestInstallerRepo {
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'scripts\Test-MobileEditionSetup.ps1') -Value 'Write-Output doctor' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'library\.gitkeep') -Value '' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'plugins\mobile_ui\plugin.json') -Value '{"id":"mobile_ui"}' -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'plugins\career\venues.json') -Value @'
+{
+  "venues": [
+    {"id":"bar","pack":null},
+    {"id":"club","pack":{"url":"https://example.invalid/club.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000","bytes":0}},
+    {"id":"arena","pack":{"url":"https://example.invalid/arena.zip","sha256":"2222222222222222222222222222222222222222222222222222222222222222","bytes":300}}
+  ]
+}
+'@ -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'plugins\career\venue-packs\bar\manifest.json') -Value '{"venue":"bar"}' -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'plugins\career\venue-packs\club\manifest.json') -Value '{"venue":"club"}' -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'plugins\career\venue-packs\arena\manifest.json') -Value '{"venue":"arena"}' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'setup-companion\package-lock.json') -Value '{}' -Encoding ASCII
+    Copy-Item `
+        -LiteralPath (Join-Path -Path $repoRoot -ChildPath 'setup-companion\src-tauri\windows-installer.nsi') `
+        -Destination (Join-Path -Path $root -ChildPath 'setup-companion\src-tauri\windows-installer.nsi')
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'setup-companion\src-tauri\tauri.conf.json') -Value @'
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
@@ -166,6 +184,35 @@ Assert-Throws {
     ConvertTo-MobileEditionInstallerVersion -Version 'v9.8'
 } 'semantic version' 'Installer versions should be semantic for Tauri metadata.'
 
+$publishedVenueFixture = New-TestInstallerRepo
+try {
+    $venuesPath = Join-Path -Path $publishedVenueFixture.root -ChildPath 'plugins\career\venues.json'
+    $venues = Get-Content -LiteralPath $venuesPath -Raw | ConvertFrom-Json
+    $clubPack = ($venues.venues | Where-Object { $_.id -eq 'club' }).pack
+    $clubPack.sha256 = '1' * 64
+    $clubPack.bytes = 200
+    $venues | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $venuesPath -Encoding ASCII
+    Invoke-TestGit -RepositoryRoot $publishedVenueFixture.root -Arguments @('add', 'plugins/career/venues.json') | Out-Null
+    Invoke-TestGit -RepositoryRoot $publishedVenueFixture.root -Arguments @('-c', 'user.name=Installer Test', '-c', 'user.email=installer@example.invalid', 'commit', '-q', '-m', 'published club metadata') | Out-Null
+
+    New-MobileEditionWindowsInstaller `
+        -Version $publishedVenueFixture.version `
+        -RepositoryRoot $publishedVenueFixture.root `
+        -TauriBuilder (New-FakeTauriBuilder {
+            param(
+                [string]$RepositoryRoot,
+                [string]$CompanionRoot,
+                [string]$ConfigPath,
+                [string]$StagedEditionDirectory,
+                [string]$Version
+            )
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'plugins\career\venue-packs\club'))) 'Installer payload should omit Club once its download metadata is published.'
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'plugins\career\venue-packs\arena'))) 'Installer payload should continue omitting published Arena media.'
+        }) | Out-Null
+} finally {
+    Remove-TestInstallerRepo -Fixture $publishedVenueFixture
+}
+
 $escapeFixture = New-TestInstallerRepo
 try {
     $outsideOutput = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("mobile edition outside installer " + [guid]::NewGuid().ToString('N'))
@@ -213,6 +260,9 @@ try {
             Assert-True (-not (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'AI_HANDOFF.local.md'))) 'Installer payload should not include local handoff files.'
             Assert-True (-not (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'node_modules\local.txt'))) 'Installer payload should not include untracked dependency caches.'
             Assert-True (-not (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'library\song.mp3'))) 'Installer payload should not include untracked library content.'
+            Assert-True (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'plugins\career\venue-packs\bar\manifest.json') -PathType Leaf) 'Installer payload should retain the starter Bar venue.'
+            Assert-True (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'plugins\career\venue-packs\club\manifest.json') -PathType Leaf) 'Installer payload should retain Club while its upstream download metadata is unpublished.'
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path -Path $StagedEditionDirectory -ChildPath 'plugins\career\venue-packs\arena'))) 'Installer payload should omit the downloadable Arena venue.'
 
             $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
             Assert-Equal $config.productName 'fee[dB]ack Mobile Edition' 'Installed product name should be the Edition, not Setup Companion.'
@@ -227,6 +277,16 @@ try {
             Assert-Equal $resource.Value 'edition' 'Build-only Tauri config should map resources under the stable edition directory.'
             Assert-Equal $config.bundle.windows.nsis.installMode 'currentUser' 'NSIS installer should install for the current user.'
             Assert-Equal $config.bundle.windows.nsis.languages[0] 'English' 'NSIS installer should use one English installer language.'
+            Assert-Equal $config.bundle.windows.nsis.installerIcon 'icons/icon.ico' 'NSIS installer should use the Setup Companion icon.'
+            Assert-Equal $config.bundle.windows.nsis.template 'windows-installer.nsi' 'NSIS installer should use the product-specific welcome template.'
+            $templatePath = Join-Path -Path $RepositoryRoot -ChildPath 'setup-companion\src-tauri\windows-installer.nsi'
+            $template = Get-Content -LiteralPath $templatePath -Raw
+            Assert-True $template.Contains('Install fee[dB]ack Mobile Edition') 'Installer welcome title should name the product action.'
+            Assert-True $template.Contains('Run your song library from one private local server') 'Installer welcome text should describe the product.'
+            Assert-True $template.Contains('- Docker Desktop') 'Installer welcome text should name Docker Desktop.'
+            Assert-True $template.Contains('For private phone and tablet access, also install Tailscale') 'Installer welcome text should scope the Tailscale requirement to private mobile access.'
+            Assert-True $template.Contains('Delete "$DESKTOP\${PRODUCTNAME}.lnk"') 'Explicit desktop shortcut creation should replace a stale shortcut.'
+            Assert-True $template.Contains('CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"') 'Desktop shortcuts should target the current installation directory.'
         })
 
     Assert-True (Test-Path -LiteralPath $result.installerPath -PathType Leaf) 'Versioned installer output should be copied to artifacts.'

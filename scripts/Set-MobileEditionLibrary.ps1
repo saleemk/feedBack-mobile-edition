@@ -52,6 +52,10 @@ function Invoke-MobileEditionLibraryConfiguration {
     $portChoice = Get-MobileEditionPortChoice -RequestedPort $null -CurrentPort $settings.feedbackPort
 
     if ($Mode -eq 'Inspect') {
+        if (-not $envResult.exists) {
+            return New-MobileEditionLibraryResult -Status 'needs_action' -Valid $false -Changed $false -Reason 'Choose a song library to complete initial setup.' -Path '' -Port $portChoice.port
+        }
+
         if ($envResult.errors.Count -gt 0) {
             return New-MobileEditionLibraryResult -Status 'needs_action' -Valid $false -Changed $false -Reason '.env must be repaired before the library can be configured.' -Path '' -Port $portChoice.port
         }

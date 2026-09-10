@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Start', 'Restart')]
+    [ValidateSet('Start', 'Restart', 'Stop')]
     [string]$Action = 'Start',
     [string]$RepositoryRoot,
     [switch]$Json
@@ -17,7 +17,7 @@ $doctorPath = Join-Path -Path $PSScriptRoot -ChildPath 'Test-MobileEditionSetup.
 
 function New-MobileEditionServerActionResult {
     param(
-        [ValidateSet('Start', 'Restart')]
+        [ValidateSet('Start', 'Restart', 'Stop')]
         [string]$Action,
         [string]$Status,
         [bool]$Changed,
@@ -36,9 +36,13 @@ function New-MobileEditionServerActionResult {
 
 function Get-MobileEditionServerActionArguments {
     param(
-        [ValidateSet('Start', 'Restart')]
+        [ValidateSet('Start', 'Restart', 'Stop')]
         [string]$Action
     )
+
+    if ($Action -eq 'Stop') {
+        return @('compose', '-f', 'docker-compose.release.yml', 'down')
+    }
 
     if ($Action -eq 'Restart') {
         return @('compose', '-f', 'docker-compose.release.yml', 'restart', 'web')
@@ -115,7 +119,7 @@ function Wait-MobileEditionServerReadyReport {
 function Invoke-MobileEditionServerAction {
     param(
         [string]$RepositoryRoot,
-        [ValidateSet('Start', 'Restart')]
+        [ValidateSet('Start', 'Restart', 'Stop')]
         [string]$Action,
         [scriptblock]$CommandRunner,
         [scriptblock]$DoctorRunner,
@@ -129,6 +133,15 @@ function Invoke-MobileEditionServerAction {
     $initialReport = Invoke-MobileEditionServerActionDoctor -RepositoryRoot $RepositoryRoot -DoctorRunner $DoctorRunner
     if ($initialReport.checks.repository.status -ne 'ready') {
         return New-MobileEditionServerActionResult -Action $Action -Status 'needs_action' -Changed $false -Reason 'Repository configuration must be ready before server actions can run.' -Report $initialReport
+    }
+
+    if ($Action -eq 'Stop') {
+        if ($initialReport.checks.docker.status -ne 'ready') {
+            return New-MobileEditionServerActionResult -Action $Action -Status 'needs_action' -Changed $false -Reason 'This checkout Docker/Compose service must be ready before Stop can run.' -Report $initialReport
+        }
+        if ($initialReport.checks.server.status -ne 'ready') {
+            return New-MobileEditionServerActionResult -Action $Action -Status 'needs_action' -Changed $false -Reason 'The local Mobile Edition server must be ready before Stop can run.' -Report $initialReport
+        }
     }
 
     $docker = $DockerCommand
@@ -146,6 +159,15 @@ function Invoke-MobileEditionServerAction {
         $afterReport = Invoke-MobileEditionServerActionDoctor -RepositoryRoot $RepositoryRoot -DoctorRunner $DoctorRunner
         $summary = Get-MobileEditionActionFailureSummary -Output $result.output
         return New-MobileEditionServerActionResult -Action $Action -Status 'failed' -Changed $false -Reason "Docker $($Action.ToLowerInvariant()) failed: $summary" -Report $afterReport
+    }
+
+    if ($Action -eq 'Stop') {
+        $afterReport = Invoke-MobileEditionServerActionDoctor -RepositoryRoot $RepositoryRoot -DoctorRunner $DoctorRunner
+        if ($afterReport.checks.server.status -eq 'ready') {
+            return New-MobileEditionServerActionResult -Action $Action -Status 'needs_action' -Changed $true -Reason 'Docker stop command completed, but the local server still appears to be running.' -Report $afterReport
+        }
+
+        return New-MobileEditionServerActionResult -Action $Action -Status 'ready' -Changed $true -Reason 'Docker stop command completed and the server is stopped. Setup doctor refreshed.' -Report $afterReport
     }
 
     $readiness = Wait-MobileEditionServerReadyReport -RepositoryRoot $RepositoryRoot -DoctorRunner $DoctorRunner -SleepHandler $SleepHandler -MaxAttempts $MaxReadinessAttempts -DelaySeconds $ReadinessDelaySeconds
