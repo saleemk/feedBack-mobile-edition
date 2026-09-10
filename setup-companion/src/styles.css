@@ -413,6 +413,28 @@ h1 {
   color: #42e8ce;
 }
 
+.check-url-link {
+  display: block;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.check-url-link:hover,
+.check-url-link:focus-visible {
+  color: #f5fbff;
+}
+
+.check-url-link:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .app-footer {
   display: flex;
   justify-content: space-between;

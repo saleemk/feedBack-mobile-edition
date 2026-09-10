@@ -373,10 +373,25 @@ function renderRow(row, index) {
   }
 
   if (row.url) {
-    const url = document.createElement('p');
-    url.className = 'check-url';
-    url.textContent = row.url;
-    body.append(url);
+    const urlButton = document.createElement('button');
+    urlButton.type = 'button';
+    urlButton.className = 'check-url check-url-link';
+    urlButton.textContent = row.url;
+    urlButton.addEventListener('click', async () => {
+      urlButton.disabled = true;
+      try {
+        await bridge()('open_private_https_url', { url: row.url });
+        checkDeviceActionMessage = '';
+        checkDeviceActionTone = '';
+      } catch (error) {
+        checkDeviceActionMessage = error?.message || 'Could not open the private HTTPS address.';
+        checkDeviceActionTone = 'error';
+      } finally {
+        urlButton.disabled = false;
+        renderCheckActionState();
+      }
+    });
+    body.append(urlButton);
   }
 
   item.append(marker, body);

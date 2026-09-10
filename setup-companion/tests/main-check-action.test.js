@@ -181,6 +181,7 @@ async function importMainWithHarness({
       ? libraryResult(args)
       : clone(libraryResult);
     if (command === 'get_library_state') return { valid: true, path: 'C:\\Music', reason: 'Library ready.' };
+    if (command === 'open_private_https_url') return {};
     throw new Error(`Unexpected command ${command}`);
   };
 
@@ -363,6 +364,24 @@ test('server action enables Check guide action after ready status and busy clean
   assert.equal(document.elements.get('check-action-row').hidden, false);
   assert.equal(document.elements.get('check-action').disabled, false);
   assert.equal(document.elements.get('check-action').dataset.action, 'open_guide');
+});
+
+test('ready private HTTPS address opens through the native browser bridge', async () => {
+  const { document, calls } = await importMainWithHarness({
+    statusPayload: await fixture('ready'),
+    deviceResult: { status: 'ready', reason: 'Device guide created and opened.' },
+  });
+
+  const privateHttpsRow = document.elements.get('checks-list').children[4];
+  const urlButton = privateHttpsRow.children[1].children.at(-1);
+  assert.equal(urlButton.tagName, 'BUTTON');
+  assert.equal(urlButton.textContent, 'https://desktop.example.ts.net');
+
+  urlButton.click();
+  await tick();
+
+  const openCall = calls.find(({ command }) => command === 'open_private_https_url');
+  assert.deepEqual(openCall?.args, { url: 'https://desktop.example.ts.net' });
 });
 
 test('ready Server view exposes separate Restart and Stop controls', async () => {

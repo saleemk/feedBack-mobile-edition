@@ -230,6 +230,17 @@ fn get_library_state(state: tauri::State<'_, CompanionState>) -> Result<LibraryR
 }
 
 #[tauri::command]
+fn open_private_https_url(url: String) -> Result<(), UiError> {
+    if !private_https_url_is_allowed(&url) {
+        return Err(UiError::new(
+            "private_https_url_invalid",
+            "Only a validated Tailscale HTTPS address can be opened here.",
+        ));
+    }
+    open_url_in_default_browser(&url)
+}
+
+#[tauri::command]
 fn choose_library_folder() -> Option<String> {
     rfd::FileDialog::new()
         .set_title("Choose your fee[dB]ack song library")
@@ -314,7 +325,8 @@ pub fn run() {
             configure_library,
             run_server_action,
             run_device_action,
-            run_prerequisite_action
+            run_prerequisite_action,
+            open_private_https_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running setup companion");
@@ -666,6 +678,19 @@ fn open_url_in_default_browser(url: &str) -> Result<(), UiError> {
             "Opening prerequisite guidance is supported only by the Windows setup companion.",
         ))
     }
+}
+
+pub fn private_https_url_is_allowed(url: &str) -> bool {
+    let Some(host) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let host = host.strip_suffix('/').unwrap_or(host);
+    !host.is_empty()
+        && host.ends_with(".ts.net")
+        && !host.contains(['/', '\\', ':', '@', '?', '#'])
+        && host
+            .bytes()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, b'.' | b'-'))
 }
 
 fn launch_known_application(path: &Path) -> Result<(), UiError> {
@@ -1327,6 +1352,26 @@ mod tests {
             prerequisite_action_url(PrerequisiteAction::OpenDocker),
             None
         );
+    }
+
+    #[test]
+    fn private_https_links_accept_only_tailscale_https_hosts() {
+        assert!(private_https_url_is_allowed(
+            "https://desktop.example-tailnet.ts.net"
+        ));
+        assert!(private_https_url_is_allowed(
+            "https://desktop.example-tailnet.ts.net/"
+        ));
+        assert!(!private_https_url_is_allowed(
+            "http://desktop.example-tailnet.ts.net"
+        ));
+        assert!(!private_https_url_is_allowed("https://example.com"));
+        assert!(!private_https_url_is_allowed(
+            "https://desktop.example-tailnet.ts.net@example.com"
+        ));
+        assert!(!private_https_url_is_allowed(
+            "https://desktop.example-tailnet.ts.net/path"
+        ));
     }
 
     #[test]
