@@ -19,12 +19,6 @@ Every candidate must identify:
 Record these values in `RELEASE-MANIFEST.md`. The Edition version is independent
 of the inherited Core `VERSION` and plugin versions.
 
-Advance `MOBILE-EDITION-IDENTITY.json` with every stable Edition candidate so
-its `editionVersion` and `releaseTag` match the candidate tag before building a
-Windows setup bundle. Prerelease setup bundles keep their exact prerelease
-bundle version in `SETUP-BUNDLE-MANIFEST.json` while the identity file remains
-the last stable checkout baseline.
-
 ## 1. Establish Source State
 
 Inspect each source repository before assembly:

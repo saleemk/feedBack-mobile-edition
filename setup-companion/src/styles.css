@@ -176,12 +176,9 @@ h1 {
   min-width: 0;
 }
 
-.status-text-stack {
+.status-copy > p {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-.status-text-stack > p {
   color: #b1c0c6;
   font-size: 0.84rem;
   line-height: 1.5;
@@ -223,130 +220,7 @@ h1 {
 }
 
 .checks-section {
-  padding: 0.7rem 1.2rem 0.75rem;
-}
-
-.status-update {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.65rem;
-  margin-top: 0.35rem;
-  min-width: 0;
-  color: #82939e;
-  font-size: 0.68rem;
-  line-height: 1.35;
-}
-
-.status-update p {
-  overflow-wrap: anywhere;
-}
-
-.status-update-label {
-  color: #f6cf45;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.status-update .tone-ready {
-  color: #73f568;
-}
-
-.status-update .tone-error {
-  color: #ff5d67;
-}
-
-.status-update.tone-ready .status-update-label {
-  color: #73f568;
-}
-
-.status-update.tone-attention .status-update-label {
-  color: #f6cf45;
-}
-
-.status-update.tone-error .status-update-label {
-  color: #ff5d67;
-}
-
-.review-update-action {
-  flex: 0 0 auto;
-  min-width: 0;
-  min-height: 1.7rem;
-  padding: 0.2rem 0.55rem;
-  border-color: #f6cf45;
-  background: #f6cf45;
-  color: #071310;
-  font-size: 0.68rem;
-  white-space: nowrap;
-}
-
-.review-update-action[hidden] {
-  display: none;
-}
-
-.review-update-action:hover:not(:disabled) {
-  background: #ffe16c;
-}
-
-.review-update-action:disabled {
-  border-color: #344451;
-  background: #203039;
-  color: #71818d;
-  opacity: 1;
-}
-
-.default-version-field {
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 1.7rem;
-  min-width: 0;
-  color: #f6cf45;
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.default-version-field[hidden] {
-  display: none;
-}
-
-.default-version-field span {
-  white-space: nowrap;
-}
-
-.version-select {
-  flex: 0 1 10.5rem;
-  min-width: 9rem;
-  min-height: 1.7rem;
-  border: 1px solid #f6cf45;
-  border-radius: 2px;
-  padding: 0.2rem 0.45rem;
-  background: #111c22;
-  color: #e7f2f2;
-  font: inherit;
-  font-size: 0.68rem;
-}
-
-.version-select[hidden] {
-  display: none;
-}
-
-.version-select:disabled {
-  border-color: #344451;
-  color: #71818d;
-  opacity: 1;
-}
-
-.update-progress {
-  color: #f6cf45;
-  font-size: 0.68rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.update-progress[hidden] {
-  display: none;
+  padding: 0.85rem 1.2rem 0.9rem;
 }
 
 .check-action-row {
@@ -399,7 +273,7 @@ h1 {
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding-bottom: 0.55rem;
+  padding-bottom: 0.7rem;
 }
 
 .section-head h2 {
@@ -441,8 +315,8 @@ h1 {
 .check-row {
   position: relative;
   align-items: center;
-  min-height: 4rem;
-  padding: 0.58rem 0.85rem;
+  min-height: 4.15rem;
+  padding: 0.65rem 0.85rem;
   border-bottom: 1px solid #26343e;
   background: #0a1015;
 }

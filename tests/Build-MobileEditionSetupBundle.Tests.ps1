@@ -68,7 +68,6 @@ function New-TestBundleRepo {
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'LICENSE') -Value 'license placeholder' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'ATTRIBUTIONS.md') -Value '# Attributions' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'RELEASE-MANIFEST.md') -Value '# Manifest' -Encoding ASCII
-    Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'MOBILE-EDITION-IDENTITY.json') -Value '{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"9.8.7","releaseTag":"v9.8.7","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'scripts\Setup-MobileEdition.ps1') -Value 'Write-Output setup' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'scripts\Start-MobileEditionSetup.ps1') -Value 'Write-Output router' -Encoding ASCII
     Set-Content -LiteralPath (Join-Path -Path $root -ChildPath 'library\.gitkeep') -Value '' -Encoding ASCII
@@ -88,8 +87,8 @@ function New-TestBundleRepo {
         root = $root
         companionDirectory = $companionDirectory
         companion = $companion
-        version = 'v9.8.7'
-        topLevel = 'feedback-mobile-edition-v9.8.7'
+        version = 'v9.8.7-test'
+        topLevel = 'feedback-mobile-edition-v9.8.7-test'
         outputDirectory = Join-Path -Path $root -ChildPath 'artifacts\setup-bundles'
     }
 }
@@ -137,32 +136,6 @@ function Read-ZipEntryText {
             return $reader.ReadToEnd()
         } finally {
             $reader.Dispose()
-        }
-    } finally {
-        $zip.Dispose()
-    }
-}
-
-function Read-ZipEntryBytes {
-    param(
-        [string]$ZipPath,
-        [string]$EntryName
-    )
-
-    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
-    try {
-        $entry = $zip.GetEntry($EntryName)
-        if ($null -eq $entry) {
-            throw "Zip entry not found: $EntryName"
-        }
-        $stream = $entry.Open()
-        $memory = [System.IO.MemoryStream]::new()
-        try {
-            $stream.CopyTo($memory)
-            return $memory.ToArray()
-        } finally {
-            $memory.Dispose()
-            $stream.Dispose()
         }
     } finally {
         $zip.Dispose()
@@ -273,88 +246,6 @@ try {
     Remove-TestBundleRepo -Fixture $libraryFixture
 }
 
-$missingIdentityFixture = New-TestBundleRepo
-try {
-    Remove-Item -LiteralPath (Join-Path -Path $missingIdentityFixture.root -ChildPath 'MOBILE-EDITION-IDENTITY.json') -Force
-    Invoke-TestGit -RepositoryRoot $missingIdentityFixture.root -Arguments @('add', 'MOBILE-EDITION-IDENTITY.json') | Out-Null
-    Invoke-TestGit -RepositoryRoot $missingIdentityFixture.root -Arguments @('-c', 'user.name=Bundle Test', '-c', 'user.email=bundle@example.invalid', 'commit', '-q', '-m', 'remove identity contract') | Out-Null
-    Assert-Throws {
-        New-MobileEditionSetupBundle -Version $missingIdentityFixture.version -RepositoryRoot $missingIdentityFixture.root -PrebuiltCompanionPath $missingIdentityFixture.companion
-    } 'Edition identity metadata is required for setup bundles' 'Setup bundle should require the Edition identity contract file.'
-} finally {
-    Remove-TestBundleRepo -Fixture $missingIdentityFixture
-}
-
-$malformedIdentityFixture = New-TestBundleRepo
-try {
-    Set-Content -LiteralPath (Join-Path -Path $malformedIdentityFixture.root -ChildPath 'MOBILE-EDITION-IDENTITY.json') -Value '{ not json' -Encoding ASCII
-    Invoke-TestGit -RepositoryRoot $malformedIdentityFixture.root -Arguments @('add', 'MOBILE-EDITION-IDENTITY.json') | Out-Null
-    Invoke-TestGit -RepositoryRoot $malformedIdentityFixture.root -Arguments @('-c', 'user.name=Bundle Test', '-c', 'user.email=bundle@example.invalid', 'commit', '-q', '-m', 'malformed identity contract') | Out-Null
-    Assert-Throws {
-        New-MobileEditionSetupBundle -Version $malformedIdentityFixture.version -RepositoryRoot $malformedIdentityFixture.root -PrebuiltCompanionPath $malformedIdentityFixture.companion
-    } 'Edition identity metadata is not valid JSON' 'Setup bundle should reject malformed Edition identity metadata.'
-} finally {
-    Remove-TestBundleRepo -Fixture $malformedIdentityFixture
-}
-
-$unsupportedIdentityFixture = New-TestBundleRepo
-try {
-    Set-Content -LiteralPath (Join-Path -Path $unsupportedIdentityFixture.root -ChildPath 'MOBILE-EDITION-IDENTITY.json') -Value '{"schema":"feedback-mobile-edition.identity.v2","editionVersion":"9.8.7","releaseTag":"v9.8.7","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}' -Encoding ASCII
-    Invoke-TestGit -RepositoryRoot $unsupportedIdentityFixture.root -Arguments @('add', 'MOBILE-EDITION-IDENTITY.json') | Out-Null
-    Invoke-TestGit -RepositoryRoot $unsupportedIdentityFixture.root -Arguments @('-c', 'user.name=Bundle Test', '-c', 'user.email=bundle@example.invalid', 'commit', '-q', '-m', 'unsupported identity contract') | Out-Null
-    Assert-Throws {
-        New-MobileEditionSetupBundle -Version $unsupportedIdentityFixture.version -RepositoryRoot $unsupportedIdentityFixture.root -PrebuiltCompanionPath $unsupportedIdentityFixture.companion
-    } 'unsupported schema' 'Setup bundle should reject unsupported Edition identity schema.'
-} finally {
-    Remove-TestBundleRepo -Fixture $unsupportedIdentityFixture
-}
-
-$mismatchedIdentityFixture = New-TestBundleRepo
-try {
-    Set-Content -LiteralPath (Join-Path -Path $mismatchedIdentityFixture.root -ChildPath 'MOBILE-EDITION-IDENTITY.json') -Value '{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"9.8.6","releaseTag":"v9.8.6","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}' -Encoding ASCII
-    Invoke-TestGit -RepositoryRoot $mismatchedIdentityFixture.root -Arguments @('add', 'MOBILE-EDITION-IDENTITY.json') | Out-Null
-    Invoke-TestGit -RepositoryRoot $mismatchedIdentityFixture.root -Arguments @('-c', 'user.name=Bundle Test', '-c', 'user.email=bundle@example.invalid', 'commit', '-q', '-m', 'mismatched identity contract') | Out-Null
-    Assert-Throws {
-        New-MobileEditionSetupBundle -Version $mismatchedIdentityFixture.version -RepositoryRoot $mismatchedIdentityFixture.root -PrebuiltCompanionPath $mismatchedIdentityFixture.companion
-    } 'must match requested bundle version' 'Setup bundle should reject identity metadata that does not match the requested bundle version.'
-} finally {
-    Remove-TestBundleRepo -Fixture $mismatchedIdentityFixture
-}
-
-$tagMismatchIdentityFixture = New-TestBundleRepo
-try {
-    Set-Content -LiteralPath (Join-Path -Path $tagMismatchIdentityFixture.root -ChildPath 'MOBILE-EDITION-IDENTITY.json') -Value '{"schema":"feedback-mobile-edition.identity.v1","editionVersion":"9.8.7","releaseTag":"v9.8.8","checkoutKind":"development","latestStableReleaseApiUrl":"https://api.github.com/repos/saleemk/feedBack-mobile-edition/releases/latest"}' -Encoding ASCII
-    Invoke-TestGit -RepositoryRoot $tagMismatchIdentityFixture.root -Arguments @('add', 'MOBILE-EDITION-IDENTITY.json') | Out-Null
-    Invoke-TestGit -RepositoryRoot $tagMismatchIdentityFixture.root -Arguments @('-c', 'user.name=Bundle Test', '-c', 'user.email=bundle@example.invalid', 'commit', '-q', '-m', 'tag mismatched identity contract') | Out-Null
-    Assert-Throws {
-        New-MobileEditionSetupBundle -Version '9.8.7' -RepositoryRoot $tagMismatchIdentityFixture.root -PrebuiltCompanionPath $tagMismatchIdentityFixture.companion
-    } 'releaseTag must match editionVersion' 'Setup bundle should reject identity releaseTag drift even when editionVersion matches the requested bundle version.'
-} finally {
-    Remove-TestBundleRepo -Fixture $tagMismatchIdentityFixture
-}
-
-$unprefixedVersionFixture = New-TestBundleRepo
-try {
-    $result = New-MobileEditionSetupBundle -Version '9.8.7' -RepositoryRoot $unprefixedVersionFixture.root -PrebuiltCompanionPath $unprefixedVersionFixture.companion
-    Assert-Equal $result.version '9.8.7' 'Bundle result should preserve the requested unprefixed version string.'
-    Assert-Equal $result.topLevelDirectory 'feedback-mobile-edition-9.8.7' 'Bundle top-level directory should preserve the requested unprefixed version string.'
-    $manifest = Read-ZipEntryText -ZipPath $result.zipPath -EntryName 'feedback-mobile-edition-9.8.7/SETUP-BUNDLE-MANIFEST.json' | ConvertFrom-Json
-    Assert-Equal $manifest.editionVersion '9.8.7' 'Bundle manifest should preserve the requested unprefixed version string.'
-} finally {
-    Remove-TestBundleRepo -Fixture $unprefixedVersionFixture
-}
-
-$prereleaseVersionFixture = New-TestBundleRepo
-try {
-    $result = New-MobileEditionSetupBundle -Version 'v9.8.8-rc.1' -RepositoryRoot $prereleaseVersionFixture.root -PrebuiltCompanionPath $prereleaseVersionFixture.companion
-    Assert-Equal $result.version 'v9.8.8-rc.1' 'Prerelease bundle result should preserve the requested version string.'
-    Assert-Equal $result.topLevelDirectory 'feedback-mobile-edition-v9.8.8-rc.1' 'Prerelease bundle top-level directory should preserve the requested version string.'
-    $manifest = Read-ZipEntryText -ZipPath $result.zipPath -EntryName 'feedback-mobile-edition-v9.8.8-rc.1/SETUP-BUNDLE-MANIFEST.json' | ConvertFrom-Json
-    Assert-Equal $manifest.editionVersion 'v9.8.8-rc.1' 'Prerelease bundle manifest should preserve the exact requested version.'
-} finally {
-    Remove-TestBundleRepo -Fixture $prereleaseVersionFixture
-}
-
 $postBuildDirtyFixture = New-TestBundleRepo
 try {
     Assert-Throws {
@@ -435,7 +326,6 @@ try {
             'LICENSE',
             'ATTRIBUTIONS.md',
             'RELEASE-MANIFEST.md',
-            'MOBILE-EDITION-IDENTITY.json',
             'scripts/Setup-MobileEdition.ps1',
             'scripts/Start-MobileEditionSetup.ps1',
             'library/.gitkeep',
@@ -455,12 +345,7 @@ try {
         Assert-True (-not ($entries -contains "$($bundleFixture.topLevel)/$forbidden")) "Bundle should not contain $forbidden."
     }
 
-    $manifestEntryName = "$($bundleFixture.topLevel)/SETUP-BUNDLE-MANIFEST.json"
-    $manifestBytes = Read-ZipEntryBytes -ZipPath $result.zipPath -EntryName $manifestEntryName
-    Assert-True ($manifestBytes.Length -gt 3) 'Bundle manifest should not be empty.'
-    Assert-True (-not ($manifestBytes[0] -eq 0xef -and $manifestBytes[1] -eq 0xbb -and $manifestBytes[2] -eq 0xbf)) 'Bundle manifest should be UTF-8 without BOM.'
-    Assert-Equal $manifestBytes[0] 123 'Bundle manifest JSON should start with an object.'
-    $manifest = Read-ZipEntryText -ZipPath $result.zipPath -EntryName $manifestEntryName | ConvertFrom-Json
+    $manifest = Read-ZipEntryText -ZipPath $result.zipPath -EntryName "$($bundleFixture.topLevel)/SETUP-BUNDLE-MANIFEST.json" | ConvertFrom-Json
     $expectedHead = (Invoke-TestGit -RepositoryRoot $bundleFixture.root -Arguments @('rev-parse', 'HEAD') | Select-Object -First 1)
     $expectedCompanionHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundleFixture.companion).Hash.ToLowerInvariant()
     Assert-Equal $manifest.schema 'feedback-mobile-edition.setup-bundle.v1' 'Bundle manifest should record the schema identity.'
