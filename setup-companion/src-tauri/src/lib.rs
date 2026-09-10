@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tauri::{path::BaseDirectory, Manager};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -291,10 +292,18 @@ async fn run_prerequisite_action(
 pub fn run() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let checkout = resolve_checkout_from_args(&args, &current_dir);
 
     tauri::Builder::default()
-        .manage(CompanionState { checkout })
+        .setup(move |app| {
+            let bundled_resource = app.path().resolve("edition", BaseDirectory::Resource).ok();
+            let checkout = resolve_checkout_from_args_with_bundled_resource(
+                &args,
+                &current_dir,
+                bundled_resource.as_deref(),
+            );
+            app.manage(CompanionState { checkout });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_setup_status,
             get_library_state,
@@ -310,8 +319,22 @@ pub fn run() {
 }
 
 pub fn resolve_checkout_from_args(args: &[String], current_dir: &Path) -> Result<PathBuf, UiError> {
+    resolve_checkout_from_args_with_bundled_resource(args, current_dir, None)
+}
+
+pub fn resolve_checkout_from_args_with_bundled_resource(
+    args: &[String],
+    current_dir: &Path,
+    bundled_resource_root: Option<&Path>,
+) -> Result<PathBuf, UiError> {
     if let Some(explicit) = parse_checkout_arg(args)? {
         return validate_checkout_root(resolve_path(current_dir, &explicit));
+    }
+
+    if let Some(resource_root) = bundled_resource_root {
+        if let Ok(root) = validate_checkout_root(resource_root.to_path_buf()) {
+            return Ok(root);
+        }
     }
 
     for candidate in default_checkout_candidates(current_dir) {
@@ -957,6 +980,80 @@ mod tests {
             .expect_err("reject missing value");
 
         assert_eq!(error.code, "invalid_args");
+    }
+
+    #[test]
+    fn resolves_bundled_edition_resource_when_no_checkout_is_supplied() {
+        let bundled = temp_root("bundled-resource");
+        fs::write(
+            bundled.join("scripts").join("Test-MobileEditionSetup.ps1"),
+            "",
+        )
+        .expect("write bundled doctor");
+        let current = env::temp_dir().join("not-a-checkout");
+
+        let resolved =
+            resolve_checkout_from_args_with_bundled_resource(&[], &current, Some(&bundled))
+                .expect("resolve bundled checkout");
+
+        assert_eq!(
+            resolved,
+            normalize_canonical_path(bundled.canonicalize().expect("canonical bundled root"))
+        );
+        fs::remove_dir_all(bundled).expect("remove bundled root");
+    }
+
+    #[test]
+    fn explicit_checkout_takes_precedence_over_bundled_resource() {
+        let explicit = temp_root("explicit-precedence");
+        let bundled = temp_root("bundled-precedence");
+        fs::write(
+            explicit.join("scripts").join("Test-MobileEditionSetup.ps1"),
+            "",
+        )
+        .expect("write explicit doctor");
+        fs::write(
+            bundled.join("scripts").join("Test-MobileEditionSetup.ps1"),
+            "",
+        )
+        .expect("write bundled doctor");
+        let args = vec![
+            "--checkout".to_string(),
+            explicit.to_string_lossy().to_string(),
+        ];
+
+        let resolved = resolve_checkout_from_args_with_bundled_resource(
+            &args,
+            &env::temp_dir(),
+            Some(&bundled),
+        )
+        .expect("resolve explicit checkout");
+
+        assert_eq!(
+            resolved,
+            normalize_canonical_path(explicit.canonicalize().expect("canonical explicit root"))
+        );
+        fs::remove_dir_all(explicit).expect("remove explicit root");
+        fs::remove_dir_all(bundled).expect("remove bundled root");
+    }
+
+    #[test]
+    fn clone_checkout_discovery_still_works_without_bundled_resource() {
+        let root = temp_root("clone-discovery");
+        fs::write(root.join("scripts").join("Test-MobileEditionSetup.ps1"), "")
+            .expect("write doctor");
+        let setup_companion = root.join("setup-companion");
+        fs::create_dir_all(&setup_companion).expect("create setup-companion dir");
+
+        let resolved =
+            resolve_checkout_from_args_with_bundled_resource(&[], &setup_companion, None)
+                .expect("resolve clone checkout");
+
+        assert_eq!(
+            resolved,
+            normalize_canonical_path(root.canonicalize().expect("canonical clone root"))
+        );
+        fs::remove_dir_all(root).expect("remove clone root");
     }
 
     #[test]

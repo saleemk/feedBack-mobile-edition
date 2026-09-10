@@ -153,7 +153,7 @@ The `v0.3.0` release has two Windows acquisition paths:
   `Setup-MobileEdition.cmd`; Git is not required.
 - A Git clone contains the same launcher and an immutable bootstrap manifest.
   When no local Companion exists, the launcher downloads the exact versioned
-  standalone EXE, verifies SHA-256 before every managed launch, caches it in an
+  standalone EXE, verifies SHA-256 before launch, caches it in an
   ignored checkout-relative directory, and falls back to terminal Guided Setup
   if bootstrap is unavailable.
 
@@ -178,3 +178,19 @@ the companion as root `Setup-MobileEdition.exe`, writes
 `SETUP-BUNDLE-MANIFEST.json`, and stores the zip plus `.sha256` file under
 ignored `artifacts/setup-bundles/`. This is a local inspection artifact only;
 publishing still requires Saleem's explicit release approval.
+
+## Local Windows One-File Installer Candidate
+
+Maintainers can create an unpublished local Windows installer candidate from a
+clean checkout:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Build-MobileEditionWindowsInstaller.ps1 -Version <edition-version>
+```
+
+The builder archives committed `HEAD` into an ignored staging payload, supplies
+that payload to a build-only Tauri NSIS configuration as an `edition` resource,
+builds a current-user Windows installer, and stores the versioned
+`feedback-mobile-edition-<edition-version>-windows-setup.exe` plus `.sha256`
+file under ignored `artifacts/windows-installer/`. Do not install or publish
+this artifact until the prototype has passed manual acceptance.
