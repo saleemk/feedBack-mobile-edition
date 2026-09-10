@@ -153,6 +153,15 @@ function New-FakeTauriBuilder {
     }.GetNewClosure()
 }
 
+function Resolve-TestRelativePath {
+    param(
+        [string]$BaseDirectory,
+        [string]$RelativePath
+    )
+
+    [System.IO.Path]::GetFullPath((Join-Path -Path $BaseDirectory -ChildPath $RelativePath))
+}
+
 Assert-Throws {
     ConvertTo-MobileEditionInstallerVersion -Version 'v9.8'
 } 'semantic version' 'Installer versions should be semantic for Tauri metadata.'
@@ -211,7 +220,10 @@ try {
             Assert-Equal $config.identifier 'com.saleemk.feedbackmobileedition' 'Installed bundle identifier should be stable for the Edition.'
             Assert-Equal $config.bundle.targets[0] 'nsis' 'Build-only Tauri config should target NSIS only.'
             $resource = @($config.bundle.resources.PSObject.Properties)[0]
-            Assert-Equal $resource.Name $StagedEditionDirectory 'Build-only Tauri config should bundle the staged Edition directory.'
+            Assert-True (-not [System.IO.Path]::IsPathRooted($resource.Name)) 'Build-only Tauri config resource source should be relative.'
+            Assert-True (-not ($resource.Name -match '^[A-Za-z]:')) 'Build-only Tauri config resource source should not include a drive letter.'
+            $tauriBase = Join-Path -Path $RepositoryRoot -ChildPath 'setup-companion\src-tauri'
+            Assert-Equal (Resolve-TestRelativePath -BaseDirectory $tauriBase -RelativePath $resource.Name) ([System.IO.Path]::GetFullPath($StagedEditionDirectory)) 'Build-only Tauri config resource source should resolve to the staged Edition directory from the Tauri base.'
             Assert-Equal $resource.Value 'edition' 'Build-only Tauri config should map resources under the stable edition directory.'
             Assert-Equal $config.bundle.windows.nsis.installMode 'currentUser' 'NSIS installer should install for the current user.'
             Assert-Equal $config.bundle.windows.nsis.languages[0] 'English' 'NSIS installer should use one English installer language.'

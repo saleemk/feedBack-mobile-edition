@@ -52,6 +52,29 @@ function Resolve-MobileEditionInstallerOutputDirectory {
     return $resolvedOutputDirectory
 }
 
+function Resolve-MobileEditionInstallerStagingRoot {
+    param([string]$RepositoryRoot)
+
+    Join-Path -Path (Join-Path -Path $RepositoryRoot -ChildPath 'artifacts\windows-installer-staging') -ChildPath ([guid]::NewGuid().ToString('N'))
+}
+
+function ConvertTo-MobileEditionTauriRelativeResourcePath {
+    param(
+        [string]$TauriBaseDirectory,
+        [string]$ResourcePath
+    )
+
+    $basePath = [System.IO.Path]::GetFullPath($TauriBaseDirectory).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $resourceFullPath = [System.IO.Path]::GetFullPath($ResourcePath).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $baseUri = [System.Uri]::new($basePath)
+    $resourceUri = [System.Uri]::new($resourceFullPath)
+    $relativePath = [System.Uri]::UnescapeDataString($baseUri.MakeRelativeUri($resourceUri).ToString()).TrimEnd('/')
+    if ([string]::IsNullOrWhiteSpace($relativePath) -or [System.IO.Path]::IsPathRooted($relativePath) -or $relativePath -match '^[A-Za-z]:') {
+        throw 'Generated Tauri resource path must be repository-relative, not absolute.'
+    }
+    return $relativePath
+}
+
 function Assert-MobileEditionInstallerPayloadRequiredFiles {
     param([string]$EditionDirectory)
 
@@ -83,7 +106,7 @@ function New-MobileEditionInstallerStagingPayload {
     Assert-MobileEditionBundleTrackedExclusions -RepositoryRoot $RepositoryRoot
 
     $head = (Invoke-MobileEditionBundleGit -RepositoryRoot $RepositoryRoot -Arguments @('rev-parse', 'HEAD') | Select-Object -First 1)
-    $stagingRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("feedback-mobile-edition-installer-" + [guid]::NewGuid().ToString('N'))
+    $stagingRoot = Resolve-MobileEditionInstallerStagingRoot -RepositoryRoot $RepositoryRoot
     $resourcesRoot = Join-Path -Path $stagingRoot -ChildPath 'resources'
     $editionDirectory = Join-Path -Path $resourcesRoot -ChildPath 'edition'
     $archivePath = Join-Path -Path $stagingRoot -ChildPath 'edition-source.zip'
@@ -117,8 +140,10 @@ function New-MobileEditionInstallerTauriConfig {
     $config.identifier = 'com.saleemk.feedbackmobileedition'
     $config.bundle.active = $true
     $config.bundle.targets = @('nsis')
+    $tauriBaseDirectory = Join-Path -Path $RepositoryRoot -ChildPath 'setup-companion\src-tauri'
+    $resourceSource = ConvertTo-MobileEditionTauriRelativeResourcePath -TauriBaseDirectory $tauriBaseDirectory -ResourcePath $EditionDirectory
     $config.bundle | Add-Member -MemberType NoteProperty -Name resources -Value ([ordered]@{
-            $EditionDirectory = 'edition'
+            $resourceSource = 'edition'
         }) -Force
     $config.bundle | Add-Member -MemberType NoteProperty -Name windows -Value ([ordered]@{
             nsis = [ordered]@{
@@ -274,8 +299,11 @@ function New-MobileEditionWindowsInstaller {
     } finally {
         if ($null -ne $staging) {
             $fullStagingRoot = [System.IO.Path]::GetFullPath($staging.stagingRoot)
-            $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
-            if ($fullStagingRoot.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase) -and (Split-Path -Leaf $fullStagingRoot).StartsWith('feedback-mobile-edition-installer-', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $stagingParent = [System.IO.Path]::GetFullPath((Join-Path -Path $resolvedRepositoryRoot -ChildPath 'artifacts\windows-installer-staging'))
+            if (-not $stagingParent.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+                $stagingParent += [System.IO.Path]::DirectorySeparatorChar
+            }
+            if ($fullStagingRoot.StartsWith($stagingParent, [System.StringComparison]::OrdinalIgnoreCase)) {
                 Remove-Item -LiteralPath $fullStagingRoot -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
