@@ -42,12 +42,23 @@ The accepted one-file Windows installer rehearsal was built from Edition commit
   initial installer and remains an optional upstream download.
 
 This rehearsal artifact is not the final public asset. Before the final tag,
-build the standalone Companion and installer from the final committed state,
-update `SETUP-COMPANION-BOOTSTRAP.json` with the immutable `v0.3.1` Companion
-URL and SHA-256, and rerun the focused launcher, installer, and manual checks.
-The release tag and adjacent checksum files record the final artifact identity;
-checksums are not embedded here because that would make the release payload
-identify itself recursively.
+build the installer from the final committed state and rerun the focused
+launcher, installer, and manual checks. The release tag and adjacent checksum
+files record the final installer identity; its checksum is not embedded here
+because that would make the release payload identify itself recursively.
+
+The standalone Setup Companion bootstrap candidate was built from Edition
+commit `9c1d973433de2643a4c12c85d5bdb54012d4f4ff`:
+
+- Filename: `Setup-MobileEdition.exe`
+- Size: `8.6 MiB`
+- SHA-256:
+  `b29271069129d07d904d48130c1438ac42d4c4f89107d7e21c9675ede0d696a7`
+- Immutable release URL:
+  `https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/Setup-MobileEdition.exe`
+
+`SETUP-COMPANION-BOOTSTRAP.json` pins this exact asset. Public `main` must not
+advance to that pin until the v0.3.1 release asset is published and verified.
 
 ## Validation Recorded
 

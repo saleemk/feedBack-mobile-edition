@@ -1,6 +1,6 @@
 {
   "schema": "feedback-mobile-edition.setup-companion-bootstrap.v1",
-  "version": "v0.3.0",
-  "assetUrl": "https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.0/Setup-MobileEdition.exe",
-  "sha256": "a8a7b60363f9ff2019db579e0958fb5afe6db8f0cec6a14eddaa38b8cb89a842"
+  "version": "v0.3.1",
+  "assetUrl": "https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/Setup-MobileEdition.exe",
+  "sha256": "b29271069129d07d904d48130c1438ac42d4c4f89107d7e21c9675ede0d696a7"
 }
