@@ -229,6 +229,7 @@ test('status band grid placement uses compact action layout without reserved emp
   assert.match(css, /\.status-copy\s*>\s*p\s*\{[\s\S]*?flex:\s*1 1 auto;/);
   assert.match(css, /\.check-action-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(12\.5rem,\s*auto\);/);
   assert.match(css, /\.check-action-row p\[hidden\]\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /\.check-url-link\s*\{[\s\S]*?font-size:\s*0\.68rem;/);
   assert.match(css, /@media\s*\(max-width:\s*820px\)\s*\{[\s\S]*?\.status-copy\s*\{[\s\S]*?grid-column:\s*1;/);
 });
 
