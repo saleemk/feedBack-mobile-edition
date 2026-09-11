@@ -79,9 +79,9 @@ Inspect ignore rules and the Docker build context whenever packaging changes.
 - Preserve pre-existing work in a dirty working tree.
 - Keep Edition changes focused on assembly, documentation, packaging, or
   release validation.
-- Do not modify remotes, create tags, push, or publish artifacts unless Saleem
-  explicitly approves the exact action.
-- Do not commit unless Saleem explicitly approves.
+- Do not modify remotes, create tags, push, or publish artifacts unless the
+  project owner explicitly approves the exact action.
+- Do not commit unless the project owner explicitly approves.
 - Do not add `Signed-off-by` to Edition commits unless explicitly requested.
 - Do not rewrite inherited Core history.
 - Do not claim the Edition is an official upstream fee[dB]ack release.
@@ -107,8 +107,8 @@ Record exact validation results in `RELEASE-MANIFEST.md` or the release notes.
 
 `AI_HANDOFF.local.md` is the temporary local task bridge. It is not committed.
 Architect owns planning and review sections. Worker owns only Worker Report
-Back. Saleem owns product decisions, manual acceptance, commits, tags, pushes,
-and releases.
+Back. The project owner owns product decisions, manual acceptance, commits,
+tags, pushes, and releases.
 
 Always inspect the real working tree and diff. Conversation summaries are not
 a substitute for repository state.

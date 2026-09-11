@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "fee[dB]ack Mobile Edition Setup Companion",
   "version": "0.1.0",
-  "identifier": "com.saleemk.feedbackmobileedition.setupcompanion",
+  "identifier": "com.feedback.mobileedition.setupcompanion",
   "build": {
     "frontendDist": "../src",
     "beforeDevCommand": "",

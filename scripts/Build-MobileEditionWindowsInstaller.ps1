@@ -186,7 +186,7 @@ function New-MobileEditionInstallerTauriConfig {
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $config.productName = 'fee[dB]ack Mobile Edition'
     $config.version = ConvertTo-MobileEditionInstallerVersion -Version $Version
-    $config.identifier = 'com.saleemk.feedbackmobileedition'
+    $config.identifier = 'com.feedback.mobileedition'
     $config.bundle.active = $true
     $config.bundle.targets = @('nsis')
     $tauriBaseDirectory = Join-Path -Path $RepositoryRoot -ChildPath 'setup-companion\src-tauri'

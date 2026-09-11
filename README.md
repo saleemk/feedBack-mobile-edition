@@ -1,13 +1,23 @@
 # fee[dB]ack Mobile Edition
 
-fee[dB]ack Mobile Edition is a clone-and-run community distribution of
-fee[dB]ack for phones, tablets, and desktop browsers. It combines a tested Core
-snapshot with the Mobile UI and Section Map plugins, plus offline practice
-support built into the Edition. Run one local server, open it on your devices,
-and download selected songs to keep practicing when the server is unavailable.
+**Your fee[dB]ack library, ready for phones, tablets, and desktop browsers.**
+
+fee[dB]ack Mobile Edition is a self-contained community distribution built
+around one private local server. It combines a tested Core snapshot with Mobile
+UI, Section Map, guided Windows setup, and offline practice support. Open your
+library on your devices, then download selected songs to keep practicing when
+the server is unavailable.
 
 This edition is based on fee[dB]ack Core. It is not an official upstream
 fee[dB]ack release.
+
+<p align="center">
+  <strong><a href="https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/feedback-mobile-edition-v0.3.1-windows-setup.exe">Download v0.3.1 for Windows</a></strong>
+  &nbsp;&middot;&nbsp;
+  <a href="https://github.com/saleemk/feedBack-mobile-edition/releases/tag/v0.3.1">Release notes</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#clone-the-repository">Install with Git</a>
+</p>
 
 <p align="center">
   <img width="760" alt="fee[dB]ack Mobile Edition Player on a phone in landscape" src="https://github.com/user-attachments/assets/df6d677e-b6ed-41a9-b120-1664c68059b9">
@@ -34,20 +44,27 @@ fee[dB]ack release.
 
 ## Quick Start
 
-Choose either the Windows installer or a Git clone. Both paths run the same
-Docker-based Mobile Edition and open the same visual Setup Companion. Both
-require [Docker Desktop](https://www.docker.com/products/docker-desktop/) with
-Docker Compose and a fee[dB]ack-compatible song library. For private phone and
-tablet access, also install [Tailscale for Windows](https://tailscale.com/download/windows)
-and the Tailscale app on those devices.
+The Windows installer is recommended for most users. A Git clone is available
+for experienced users who prefer repository-based updates. Both paths run the
+same Docker-based Mobile Edition and open the same visual Setup Companion.
 
-### Download The Windows Installer
+Before starting, have these ready:
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Docker
+  Compose.
+- A fee[dB]ack-compatible song library.
+- [Tailscale for Windows](https://tailscale.com/download/windows) and Tailscale
+  on your other devices only if you want private phone or tablet access.
+
+### Install On Windows (Recommended)
 
 This is the simplest path and does not require Git:
 
-1. Open [GitHub Releases](https://github.com/saleemk/feedBack-mobile-edition/releases)
-   and download `feedback-mobile-edition-v<version>-windows-setup.exe`.
-2. Optionally download the adjacent `.sha256` file and compare it with:
+1. Download the
+   [v0.3.1 Windows installer](https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/feedback-mobile-edition-v0.3.1-windows-setup.exe).
+2. Optionally download its
+   [SHA-256 checksum](https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/feedback-mobile-edition-v0.3.1-windows-setup.exe.sha256)
+   and compare it with:
 
 ```powershell
 Get-FileHash .\feedback-mobile-edition-*-windows-setup.exe -Algorithm SHA256
@@ -56,15 +73,9 @@ Get-FileHash .\feedback-mobile-edition-*-windows-setup.exe -Algorithm SHA256
 3. Run the installer. Leave **Run fee[dB]ack Mobile Edition** selected to open
    the visual Setup Companion when installation finishes.
 
-The Companion is not digitally signed, so Windows may show an
+The installer and Companion are not digitally signed, so Windows may show an
 unrecognized-app warning. Verify that the installer came from this repository's
 GitHub release and that its checksum matches before running it.
-
-The installer includes Mobile Edition and the Setup Companion. The starter Bar
-and Club Career venues are included. The larger Arena venue is downloaded from
-the official fee[dB]ack release when it becomes available in Career mode,
-keeping the initial Windows download smaller. The regular 3D Venue
-visualization does not depend on these Career packs.
 
 ### Clone The Repository
 
@@ -89,51 +100,24 @@ Guided Setup. The managed cache is local to the checkout and is not committed.
 
 ### Finish Guided Setup
 
-Command-line users can run the same launcher from PowerShell or Command
-Prompt:
+The Setup Companion checks what is already ready and guides you through the
+remaining steps:
 
-```powershell
-.\Setup-MobileEdition.cmd
-```
+1. Choose your song library.
+2. Start the local Docker server.
+3. Optionally enable private Tailscale HTTPS access.
+4. Connect a phone or tablet using the device guide and QR code.
 
-Use `-WhatIf` through the launcher to preview the proposed setup actions
-without changing `.env`, Docker, or Tailscale:
+The Companion asks before making changes and does not overwrite an existing
+Tailscale service. The device-guide QR code is generated locally, so your
+private address is not sent to an online QR service.
 
-```powershell
-.\Setup-MobileEdition.cmd -WhatIf
-```
+Mobile Edition runs in the background after setup, so you can close the
+Companion. The first Docker build can take a few minutes.
 
-If the launcher is blocked by local policy or troubleshooting requires it, run
-the underlying PowerShell script directly:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-MobileEdition.ps1
-```
-
-The Setup Companion runs the read-only setup doctor first, asks before each
-change, helps create or update `.env`, starts Mobile Edition with Docker when
-you approve it, and configures private Tailscale HTTPS only when it can do so
-without replacing an existing root Serve route. The terminal Guided Setup is a
-fallback over the same guarded setup helpers.
-
-When setup finishes with private HTTPS ready, it can also create and open a
-local phone/tablet guide with a QR code. The QR code is generated inside your
-local Mobile Edition container; the private URL is not sent to an online QR
-service. The HTTPS address is still shown as text if guide creation is skipped
-or unavailable.
-
-Open the private HTTPS address reported by setup on your computer, phone, or
-tablet.
-
-Setup starts Mobile Edition in the background, so you can close the Companion
-or fallback terminal after it finishes. The first build can take a while.
-Tailscale Serve continues in the background and resumes after restarts. Use
-`tailscale serve status` to display the address again.
-
-The release Compose file mounts only your external song library and a Docker
-volume for application configuration. It does not replace the bundled app files
-with your checkout, so Mobile UI and Section Map stay at the versions recorded
-in `RELEASE-MANIFEST.md`.
+Command-line users can run `.\Setup-MobileEdition.cmd` directly and add
+`-WhatIf` to preview changes. If the visual Companion cannot open, the launcher
+automatically falls back to terminal Guided Setup.
 
 ## Manual Setup Fallback
 
@@ -209,7 +193,11 @@ for configuration and troubleshooting details.
 
 ## Updating, Restarting, And Stopping
 
-To update this checkout and rebuild the app:
+Installer users can reopen **fee[dB]ack Mobile Edition** from the desktop or
+Start menu. The Setup Companion's **Server** page provides start, restart, and
+stop controls.
+
+Git users can update their checkout and rebuild the app with:
 
 ```powershell
 git pull

@@ -104,7 +104,7 @@ function New-TestInstallerRepo {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "fee[dB]ack Mobile Edition Setup Companion",
   "version": "0.1.0",
-  "identifier": "com.saleemk.feedbackmobileedition.setupcompanion",
+  "identifier": "com.feedback.mobileedition.setupcompanion",
   "build": {
     "frontendDist": "../src",
     "beforeDevCommand": "",
@@ -267,7 +267,7 @@ try {
             $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
             Assert-Equal $config.productName 'fee[dB]ack Mobile Edition' 'Installed product name should be the Edition, not Setup Companion.'
             Assert-Equal $config.version '9.8.7-test' 'Build-only Tauri config should use semver without a leading v.'
-            Assert-Equal $config.identifier 'com.saleemk.feedbackmobileedition' 'Installed bundle identifier should be stable for the Edition.'
+            Assert-Equal $config.identifier 'com.feedback.mobileedition' 'Installed bundle identifier should be stable for the Edition.'
             Assert-Equal $config.bundle.targets[0] 'nsis' 'Build-only Tauri config should target NSIS only.'
             $resource = @($config.bundle.resources.PSObject.Properties)[0]
             Assert-True (-not [System.IO.Path]::IsPathRooted($resource.Name)) 'Build-only Tauri config resource source should be relative.'

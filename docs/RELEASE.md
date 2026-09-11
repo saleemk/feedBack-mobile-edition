@@ -122,7 +122,7 @@ untested; do not imply broader support from automated checks alone.
 
 ## 6. Approve And Publish
 
-Only after Saleem approves the candidate:
+Only after the release owner approves the candidate:
 
 1. Commit the Edition assembly with its manifest and documentation.
 2. Build, audit, and manually test the final one-file Windows installer and
@@ -139,7 +139,7 @@ Only after Saleem approves the candidate:
 
 This ordering prevents a public clone from activating a bootstrap URL before
 the matching verified Companion asset exists. Commit, push, tag, and publishing
-steps each require Saleem's explicit approval.
+steps each require the release owner's explicit approval.
 
 Do not use a moving image tag as the only release identity. Record a versioned
 tag and immutable digest when a public image is introduced.
@@ -179,7 +179,7 @@ Setup Companion in release `--no-bundle` mode, archives committed `HEAD`, adds
 the companion as root `Setup-MobileEdition.exe`, and writes a legacy setup ZIP
 under ignored `artifacts/setup-bundles/`. The built Companion can be inspected
 or used as the standalone clone-bootstrap asset, but the ZIP is no longer a
-public acquisition path. Publishing still requires Saleem's explicit release
+public acquisition path. Publishing still requires the release owner's explicit
 approval.
 
 ## Local Windows One-File Installer Candidate
@@ -196,5 +196,5 @@ that payload to a build-only Tauri NSIS configuration as an `edition` resource,
 builds a current-user Windows installer, and stores the versioned
 `feedback-mobile-edition-<edition-version>-windows-setup.exe` plus `.sha256`
 file under ignored `artifacts/windows-installer/`. Manual acceptance is still
-required for every final candidate, and publishing requires Saleem's explicit
-release approval.
+required for every final candidate, and publishing requires the release owner's
+explicit approval.

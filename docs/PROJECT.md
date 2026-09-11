@@ -93,9 +93,9 @@ packaging, documentation, distribution, and product-level validation.
 
 ## Current Status
 
-The current release is `v0.3.0`. It keeps the tested Core and plugin inputs
-from `v0.2.0` and adds a visual Windows Setup Companion, a complete downloadable
-Windows setup bundle, and a secure bootstrap path for Git clones. The release
-remains Docker-based; the Companion guides local library, server, private
-HTTPS, and device setup rather than installing a separate native fee[dB]ack
-application. A pinned public container image is not yet available.
+The current release is `v0.3.1`. It provides a one-file Windows installer, a
+visual Setup Companion, and a checksum-verified Companion bootstrap for Git
+clones. The release remains Docker-based; the Companion guides local library,
+server, optional private HTTPS, and device setup rather than installing a
+separate native fee[dB]ack application. A pinned public container image is not
+yet available.

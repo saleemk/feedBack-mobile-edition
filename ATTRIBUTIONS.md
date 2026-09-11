@@ -34,5 +34,5 @@ vendored plugin directories.
 - Use: Edition release image helper for locally generated device-handoff QR
   codes.
 
-This edition is maintained by Saleem as a community distribution. It is not
-presented as an official fee[dB]ack Core release.
+This edition is maintained as a community distribution. It is not presented as
+an official fee[dB]ack Core release.

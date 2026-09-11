@@ -18,8 +18,8 @@ Keep Edition changes small enough to answer three questions clearly:
 
 ## Roles And Responsibilities
 
-Saleem owns product direction, UX decisions, manual testing, acceptance,
-commits, tags, publishing, and final release decisions.
+The project owner owns product direction, UX decisions, manual testing,
+acceptance, commits, tags, publishing, and final release decisions.
 
 Architect owns investigation, task definition, source and Edition boundary
 decisions, implementation review, release review, and durable documentation
@@ -27,7 +27,7 @@ recommendations.
 
 Worker owns approved implementation and validation. Worker does not change
 planning or review sections in the handoff and does not commit or push without
-Saleem's explicit approval.
+the project owner's explicit approval.
 
 ## Sources Of Truth
 
@@ -41,7 +41,7 @@ Implementation truth is determined by:
 
 Current task authority is determined by:
 
-1. Saleem's explicit current instruction.
+1. The project owner's explicit current instruction.
 2. `AI_HANDOFF.local.md`.
 3. Edition and source-repository agent guidance.
 4. Durable project documentation.
@@ -114,8 +114,8 @@ diff.
 `AI_HANDOFF.local.md` is the ignored, temporary bridge between Architect and
 Worker. Architect owns repository state, task intent, behavior contract,
 approved implementation, validation, decisions, and Architect Review. Worker
-owns only Worker Report Back. Saleem owns manual acceptance and release
-authority.
+owns only Worker Report Back. The project owner owns manual acceptance and
+release authority.
 
 Read the existing handoff before overwriting it. The current working tree and
 diff remain authoritative when a handoff or conversation is stale.

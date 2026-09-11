@@ -285,7 +285,7 @@ Assert-True (-not $blankQr.valid) 'Blank QR payloads should be rejected.'
 $badQr = ConvertFrom-MobileEditionQrPayload -Payload ([System.Convert]::ToBase64String([byte[]](1, 2, 3, 4)))
 Assert-True (-not $badQr.valid) 'Non-PNG QR payloads should be rejected.'
 
-$htmlUrl = 'https://desktop.tailnet.ts.net/mobile?name=Saleem&mode=%3Cready%3E'
+$htmlUrl = 'https://desktop.tailnet.ts.net/mobile?name=Example&mode=%3Cready%3E'
 $guideHtml = New-MobileEditionDeviceGuideHtml -Url $htmlUrl -QrPngBytes (New-TestPngBytes)
 $encodedHtmlUrl = [System.Net.WebUtility]::HtmlEncode($htmlUrl)
 Assert-True $guideHtml.Contains('<title>Connect your device</title>') 'Guide HTML should include the required title.'
