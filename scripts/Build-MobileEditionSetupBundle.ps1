@@ -163,8 +163,8 @@ function Invoke-MobileEditionBundleCommand {
 function Assert-MobileEditionBundleCleanTrackedTree {
     param([string]$RepositoryRoot)
 
-    $status = @(Invoke-MobileEditionBundleGit -RepositoryRoot $RepositoryRoot -Arguments @('status', '--porcelain', '--untracked-files=no'))
-    if ($status.Count -gt 0) {
+    $changedPaths = @(Invoke-MobileEditionBundleGit -RepositoryRoot $RepositoryRoot -Arguments @('diff', '--name-only', 'HEAD', '--'))
+    if ($changedPaths.Count -gt 0) {
         throw "Refusing to build setup bundle because the tracked working tree is dirty."
     }
 }
