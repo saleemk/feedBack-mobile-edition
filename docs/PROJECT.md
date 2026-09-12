@@ -93,9 +93,10 @@ packaging, documentation, distribution, and product-level validation.
 
 ## Current Status
 
-The current release is `v0.3.1`. It provides a one-file Windows installer, a
-visual Setup Companion, and a checksum-verified Companion bootstrap for Git
-clones. The release remains Docker-based; the Companion guides local library,
-server, optional private HTTPS, and device setup rather than installing a
-separate native fee[dB]ack application. A pinned public container image is not
-yet available.
+The current candidate is `v0.3.2`; the latest public release remains `v0.3.1`
+until candidate publication is complete. It provides a one-file Windows
+installer, a visual Setup Companion, and a checksum-verified Companion
+bootstrap for Git clones. The release remains Docker-based; the Companion
+guides local library, server, optional private HTTPS, and device setup rather
+than installing a separate native fee[dB]ack application. A pinned public
+container image is not yet available.

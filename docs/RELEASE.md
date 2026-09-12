@@ -1,7 +1,7 @@
 # Mobile Edition Release Process
 
 This document defines the durable process for producing a fee[dB]ack Mobile
-Edition release. The `v0.3.1` candidate supports a Git clone-and-run path and a
+Edition release. The `v0.3.2` candidate supports a Git clone-and-run path and a
 one-file Windows installer. A pinned public Edition container image is not
 currently available.
 
@@ -146,7 +146,7 @@ tag and immutable digest when a public image is introduced.
 
 ## Current Distribution Paths
 
-The `v0.3.1` candidate has two Windows acquisition paths:
+The `v0.3.2` candidate has two Windows acquisition paths:
 
 - A one-file Windows installer contains the committed Edition checkout and the
   visual Setup Companion. It installs for the current user, creates an optional

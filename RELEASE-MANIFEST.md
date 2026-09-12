@@ -1,8 +1,8 @@
 # Mobile Edition Release Manifest
 
-Edition version: `0.3.1`
-Status: release candidate validated; final packaging and publication pending
-Captured: 2026-09-10
+Edition version: `0.3.2`
+Status: release candidate prepared; final packaging and publication pending
+Captured: 2026-09-11
 
 This manifest pins the source inputs used by this checkout. It is intentionally
 separate from the core application's `VERSION` file.
@@ -30,14 +30,14 @@ This is an Edition packaging override. The pinned Core snapshot remains
 unchanged.
 
 The accepted one-file Windows installer rehearsal was built from Edition commit
-`51cab2b2c1a85416cc71abb7ed2a37a86e326552`:
+`7a8c8e688e8bcd64e815cabe842c74864bf2850b`:
 
-- Candidate version: `v0.3.1-rc.1`
+- Candidate version: `v0.3.2-rc.1`
 - Candidate filename:
-  `feedback-mobile-edition-v0.3.1-rc.1-windows-setup.exe`
+  `feedback-mobile-edition-v0.3.2-rc.1-windows-setup.exe`
 - Candidate size: `536.7 MiB`
 - Candidate SHA-256:
-  `6f077a2ae25143cbb1a23cb6e4e43b59ff89f745ef5f249e16580485bc267796`
+  `d4cdd68383501e8927abe1b47575a6155180843c64875ae8254517ddb0f3dcc2`
 - Bundled Career venues: Bar and Club. Arena is intentionally omitted from the
   initial installer and remains an optional upstream download.
 
@@ -48,20 +48,24 @@ files record the final installer identity; its checksum is not embedded here
 because that would make the release payload identify itself recursively.
 
 The standalone Setup Companion bootstrap candidate was built from Edition
-commit `9c1d973433de2643a4c12c85d5bdb54012d4f4ff`:
+commit `7a8c8e688e8bcd64e815cabe842c74864bf2850b`:
 
 - Filename: `Setup-MobileEdition.exe`
 - Size: `8.6 MiB`
 - SHA-256:
-  `b29271069129d07d904d48130c1438ac42d4c4f89107d7e21c9675ede0d696a7`
+  `467e5a7d9ffd19782c74ac3aff8f3bc2c8c18db0d1c8bacc082c32395ba186c3`
 - Immutable release URL:
-  `https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/Setup-MobileEdition.exe`
+  `https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.2/Setup-MobileEdition.exe`
 
 `SETUP-COMPANION-BOOTSTRAP.json` pins this exact asset. Public `main` must not
-advance to that pin until the v0.3.1 release asset is published and verified.
+advance to that pin until the v0.3.2 release asset is published and verified.
 
 ## Validation Recorded
 
+- The focused `v0.3.2` setup, setup-bundle, and Windows-installer PowerShell
+  suites passed against commit `7a8c8e6`. The full `ship-ci` run for that
+  commit was still in progress when this candidate record was captured and
+  remains a publication gate.
 - The complete Core Python suite passed under the CI platform, Linux Python
   3.12: `2878 passed`, `4 skipped`, `0 failed`.
 - The full Edition root JavaScript suite passed: `1572/1572`.
@@ -85,11 +89,12 @@ advance to that pin until the v0.3.1 release asset is published and verified.
 - An isolated candidate container returned HTTP 200, reported all 14 plugins,
   and included Career, Mobile UI, and Section Map. The user's existing server
   and external library were not replaced for this smoke check.
-- Manual Windows acceptance covered uninstall/reinstall, prerequisite links,
-  library selection, Docker start/stop/restart, Tailscale private HTTPS, QR
-  device connection, online playback, offline download in a normal browser
-  tab, and Career visibility. Private Browsing correctly exposed its OPFS
-  storage limitation.
+- Manual Windows acceptance on a clean installer built from `7a8c8e6` covered
+  prerequisite links, library selection and progress feedback, Docker
+  start/stop/restart, Tailscale private HTTPS, QR device connection, online
+  playback, offline download and playback in a normal browser tab, offline
+  startup, and reconnection. The neutral `com.feedback.mobileedition` AppData
+  identity was created and the old personal-named identity was absent.
 - The one-file installer includes no Git metadata or local configuration and
   reduced the accepted rehearsal download from about `875.6 MiB` to `536.7 MiB`
   by omitting Arena while retaining Bar and Club.
@@ -112,21 +117,15 @@ advance to that pin until the v0.3.1 release asset is published and verified.
 
 ## Release Notes
 
-- Replaces the newcomer setup ZIP with one Windows installer that installs the
-  Edition and opens the visual Setup Companion.
-- Keeps the Git clone path for experienced users, with one immutable verified
-  Companion download and terminal Guided Setup as the failure fallback.
-- Simplifies the Companion around first setup instead of managing previous
-  Edition installations or presenting version-selection controls.
-- Improves library-save feedback and guided progression across Library, Server,
-  Check, and Devices while tolerating users who complete steps in another order.
-- Adds start, restart, and stop controls for the local Docker server.
-- Adds prerequisite links in the installer, a local QR device guide, a
-  ready-state phone/tablet shortcut, and clickable private HTTPS URLs.
-- Includes Bar and Club Career venues in the installer while leaving the much
-  larger Arena pack as an optional upstream download.
-- Core, Mobile UI, and Section Map source pins are unchanged from `v0.3.0`;
-  this release focuses on setup and distribution.
+- Polishes the README and project documentation around the two supported
+  newcomer paths: the Windows installer and a Git clone.
+- Uses a neutral Windows bundle and AppData identity instead of embedding a
+  maintainer username in installed application metadata.
+- Replaces unnecessary personal references in project-owned documentation and
+  test fixtures with role-based or neutral wording.
+- Fixes installer builds falsely reporting a dirty tree when Tauri touches and
+  restores `Cargo.toml` without changing its contents.
+- Core, Mobile UI, and Section Map source pins are unchanged from `v0.3.1`.
 - User libraries and configuration remain external mounts and are not part of
   the repository, installer payload, or image build context.
 - A pinned public Edition container image has not been published.

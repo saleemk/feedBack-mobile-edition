@@ -12,9 +12,9 @@ This edition is based on fee[dB]ack Core. It is not an official upstream
 fee[dB]ack release.
 
 <p align="center">
-  <strong><a href="https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/feedback-mobile-edition-v0.3.1-windows-setup.exe">Download v0.3.1 for Windows</a></strong>
+  <strong><a href="https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.2/feedback-mobile-edition-v0.3.2-windows-setup.exe">Download v0.3.2 for Windows</a></strong>
   &nbsp;&middot;&nbsp;
-  <a href="https://github.com/saleemk/feedBack-mobile-edition/releases/tag/v0.3.1">Release notes</a>
+  <a href="https://github.com/saleemk/feedBack-mobile-edition/releases/tag/v0.3.2">Release notes</a>
   &nbsp;&middot;&nbsp;
   <a href="#clone-the-repository">Install with Git</a>
 </p>
@@ -61,9 +61,9 @@ Before starting, have these ready:
 This is the simplest path and does not require Git:
 
 1. Download the
-   [v0.3.1 Windows installer](https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/feedback-mobile-edition-v0.3.1-windows-setup.exe).
+   [v0.3.2 Windows installer](https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.2/feedback-mobile-edition-v0.3.2-windows-setup.exe).
 2. Optionally download its
-   [SHA-256 checksum](https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.1/feedback-mobile-edition-v0.3.1-windows-setup.exe.sha256)
+   [SHA-256 checksum](https://github.com/saleemk/feedBack-mobile-edition/releases/download/v0.3.2/feedback-mobile-edition-v0.3.2-windows-setup.exe.sha256)
    and compare it with:
 
 ```powershell
