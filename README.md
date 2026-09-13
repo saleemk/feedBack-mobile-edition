@@ -112,11 +112,9 @@ The Companion shows what is ready and what needs attention across your library,
 server, and device connection. Open it again anytime to check your setup, start
 or stop the server, or connect another device.
 
-<!-- Replace SETUP_COMPANION_SCREENSHOT_URL and uncomment when the screenshot is ready.
 <p align="center">
-  <img width="760" alt="fee[dB]ack Setup Companion showing all setup checks ready" src="SETUP_COMPANION_SCREENSHOT_URL">
+  <img width="760" alt="fee[dB]ack Setup Companion showing all setup checks ready" src="https://github.com/user-attachments/assets/28998502-284a-4841-9c07-f865d5bb243d">
 </p>
--->
 
 The Companion asks before making changes and does not overwrite an existing
 Tailscale service. The device-guide QR code is generated locally, so your
